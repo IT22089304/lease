@@ -1,0 +1,111 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Updated color scheme based on requested colors */
+    --background: 213 20% 95%; /* Light version of #D5D8DC */
+    --foreground: 210 25% 18%; /* Dark version of #2E4053 */
+    --card: 0 0% 100%;
+    --card-foreground: 210 25% 18%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 210 25% 18%;
+    --primary: 210 25% 18%; /* #2E4053 */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 200 15% 75%; /* #BFC9CA */
+    --secondary-foreground: 210 25% 18%;
+    --muted: 202 12% 72%; /* #AAB7B8 */
+    --muted-foreground: 210 25% 18%;
+    --accent: 48 100% 50%; /* #F1C40F */
+    --accent-foreground: 210 25% 18%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 200 15% 85%; /* Lighter version of #BFC9CA */
+    --input: 200 15% 85%;
+    --ring: 48 100% 50%; /* #F1C40F */
+    --radius: 0.5rem;
+    --success: 142 76% 36%;
+    --success-foreground: 0 0% 98%;
+    --warning: 48 100% 50%; /* #F1C40F */
+    --warning-foreground: 210 25% 18%;
+  }
+
+  .dark {
+    --background: 210 25% 18%; /* #2E4053 */
+    --foreground: 213 20% 85%;
+    --card: 210 25% 20%;
+    --card-foreground: 213 20% 85%;
+    --popover: 210 25% 20%;
+    --popover-foreground: 213 20% 85%;
+    --primary: 213 20% 85%;
+    --primary-foreground: 210 25% 18%;
+    --secondary: 200 15% 40%;
+    --secondary-foreground: 213 20% 85%;
+    --muted: 202 12% 45%;
+    --muted-foreground: 213 20% 70%;
+    --accent: 48 100% 50%; /* #F1C40F */
+    --accent-foreground: 210 25% 18%;
+    --destructive: 0 62% 30%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 200 15% 30%;
+    --input: 200 15% 30%;
+    --ring: 48 100% 50%;
+    --success: 142 76% 36%;
+    --success-foreground: 0 0% 98%;
+    --warning: 48 100% 50%;
+    --warning-foreground: 210 25% 18%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+}
+
+@layer components {
+  .property-card {
+    @apply bg-card border border-border rounded-lg p-6 shadow-sm hover:shadow-md transition-shadow;
+  }
+
+  .status-badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .status-paid {
+    @apply bg-success/10 text-success border border-success/20;
+  }
+
+  .status-overdue {
+    @apply bg-destructive/10 text-destructive border border-destructive/20;
+  }
+
+  .status-active {
+    @apply bg-accent/10 text-accent-foreground border border-accent/20;
+  }
+
+  .status-expired {
+    @apply bg-muted text-muted-foreground border border-muted;
+  }
+
+  .wizard-step {
+    @apply flex items-center space-x-2 text-sm;
+  }
+
+  .wizard-step.active {
+    @apply text-primary font-medium;
+  }
+
+  .wizard-step.completed {
+    @apply text-success;
+  }
+
+  .form-section {
+    @apply space-y-4 p-6 border border-border rounded-lg bg-card;
+  }
+}
