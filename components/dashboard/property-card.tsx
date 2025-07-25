@@ -12,6 +12,7 @@ interface PropertyCardProps {
   onCreateLease: (id: string) => void
   onSendNotice: (id: string) => void
   onSendInvitation: (id: string) => void
+  leased?: boolean
 }
 
 export function PropertyCard({ 
@@ -19,14 +20,18 @@ export function PropertyCard({
   onViewProperty,
   onCreateLease,
   onSendNotice,
-  onSendInvitation
+  onSendInvitation,
+  leased
 }: PropertyCardProps) {
   const formatAddress = (address: Property["address"]) => {
     return `${address.street}${address.unit ? `, Unit ${address.unit}` : ""}, ${address.city}`
   }
 
   return (
-    <Card className="hover:shadow-lg transition-shadow">
+    <Card className="hover:shadow-lg transition-shadow relative">
+      {leased && (
+        <Badge className="absolute top-3 right-3 bg-green-100 text-green-700 border-green-200">Leased</Badge>
+      )}
       <CardHeader className="pb-3">
         <div className="flex justify-between items-start">
           <CardTitle className="text-lg capitalize">{property.type}</CardTitle>

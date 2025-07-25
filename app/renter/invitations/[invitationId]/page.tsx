@@ -59,12 +59,9 @@ export default function RenterInvitationDetailsPage() {
     if (!invitation) return
     setAccepting(true)
     try {
-      console.log("Updating invitation with ID:", invitation.id)
       await invitationService.updateInvitationStatus(invitation.id, "accepted")
-      // Re-fetch invitation to update UI
-      const invs = await invitationService.getInvitationsForEmail(user?.email || "")
-      const updated = invs.find((i: any) => i.id === invitation.id)
-      setInvitation(updated)
+      // Redirect to application form page
+      router.push(`/renter/applications/new?invitationId=${invitation.id}`)
     } catch (e) {
       alert("Failed to accept invitation.")
     } finally {
@@ -120,45 +117,6 @@ export default function RenterInvitationDetailsPage() {
           {invitation.status === "accepted" && (
             <>
               <div className="text-success font-semibold w-full text-center mt-4">You have accepted this invitation.</div>
-              <Dialog open={showAppDialog} onOpenChange={setShowAppDialog}>
-                <DialogTrigger asChild>
-                  <Button className="w-full mt-4" variant="outline">Submit Application</Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Lease Application</DialogTitle>
-                  </DialogHeader>
-                  <form onSubmit={handleAppSubmit} className="space-y-6">
-                    <div>
-                      <Label>Full Name</Label>
-                      <Input name="fullName" value={appForm.fullName} onChange={handleAppChange} required />
-                    </div>
-                    <div>
-                      <Label>Email</Label>
-                      <Input name="email" type="email" value={appForm.email} onChange={handleAppChange} required />
-                    </div>
-                    <div>
-                      <Label>Phone</Label>
-                      <Input name="phone" value={appForm.phone} onChange={handleAppChange} required />
-                    </div>
-                    <div>
-                      <Label>Employment Company</Label>
-                      <Input name="employmentCompany" value={appForm.employmentCompany} onChange={handleAppChange} />
-                    </div>
-                    <div>
-                      <Label>Job Title</Label>
-                      <Input name="employmentJobTitle" value={appForm.employmentJobTitle} onChange={handleAppChange} />
-                    </div>
-                    <div>
-                      <Label>Monthly Income</Label>
-                      <Input name="employmentMonthlyIncome" value={appForm.employmentMonthlyIncome} onChange={handleAppChange} />
-                    </div>
-                    <Button type="submit" className="w-full" disabled={appSubmitting}>
-                      {appSubmitting ? "Submitting..." : "Submit Application"}
-                    </Button>
-                  </form>
-                </DialogContent>
-              </Dialog>
             </>
           )}
         </>

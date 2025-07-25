@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { PropertyCard } from "@/components/dashboard/property-card"
 import { propertyService } from "@/lib/services/property-service"
+import { leaseService } from "@/lib/services/lease-service"
 import { useAuth } from "@/lib/auth"
 
 export default function PropertiesPage() {
@@ -15,6 +16,7 @@ export default function PropertiesPage() {
   const [searchTerm, setSearchTerm] = useState("")
   const [properties, setProperties] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [leases, setLeases] = useState<any[]>([]);
 
   useEffect(() => {
     async function fetchProperties() {
@@ -22,6 +24,13 @@ export default function PropertiesPage() {
       setLoading(true)
       const props = await propertyService.getLandlordProperties(user.id)
       setProperties(props)
+      // Fetch all leases for this landlord's properties
+      const allLeases = [];
+      for (const prop of props) {
+        const propLeases = await leaseService.getLandlordLeases(user.id);
+        allLeases.push(...propLeases.filter(l => l.propertyId === prop.id));
+      }
+      setLeases(allLeases)
       setLoading(false)
     }
     fetchProperties()
@@ -76,16 +85,20 @@ export default function PropertiesPage() {
       </div>
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-        {filteredProperties.map((property) => (
-          <PropertyCard
-            key={property.id}
-            property={property}
-            onViewProperty={handleViewDetails}
-            onCreateLease={() => router.push(`/wizard/lease?propertyId=${property.id}`)}
-            onSendNotice={() => router.push(`/notices?propertyId=${property.id}`)}
-            onSendInvitation={() => router.push(`/invitations?propertyId=${property.id}`)}
-          />
-        ))}
+        {filteredProperties.map((property) => {
+          const leased = leases.some(l => l.propertyId === property.id && l.renterId && l.status === "active");
+          return (
+            <PropertyCard
+              key={property.id}
+              property={property}
+              onViewProperty={handleViewDetails}
+              onCreateLease={() => router.push(`/wizard/lease?propertyId=${property.id}`)}
+              onSendNotice={() => router.push(`/notices?propertyId=${property.id}`)}
+              onSendInvitation={() => router.push(`/invitations?propertyId=${property.id}`)}
+              leased={leased}
+            />
+          );
+        })}
       </div>
 
       {filteredProperties.length === 0 && (

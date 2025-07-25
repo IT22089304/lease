@@ -57,10 +57,10 @@ export default function IncomesPage() {
   const totalIncome = totalRent + totalDeposits;
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
-      <h1 className="text-3xl font-bold text-primary mb-2">Income Overview</h1>
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card>
+    <div className="container mx-auto p-8 space-y-8">
+      <h1 className="text-3xl font-bold text-primary mb-4">Income Overview</h1>
+      <div className="grid gap-6 md:grid-cols-4 bg-muted/40 rounded-xl p-4 shadow-sm mb-8">
+        <Card className="shadow-md rounded-lg">
           <CardHeader>
             <CardTitle>Total Income</CardTitle>
           </CardHeader>
@@ -68,7 +68,7 @@ export default function IncomesPage() {
             <div className="text-2xl font-bold text-success">${totalIncome.toLocaleString()}</div>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="shadow-md rounded-lg">
           <CardHeader>
             <CardTitle>Rent Payments</CardTitle>
           </CardHeader>
@@ -76,7 +76,7 @@ export default function IncomesPage() {
             <div className="text-2xl font-bold">${totalRent.toLocaleString()}</div>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="shadow-md rounded-lg">
           <CardHeader>
             <CardTitle>Security Deposits</CardTitle>
           </CardHeader>
@@ -84,7 +84,7 @@ export default function IncomesPage() {
             <div className="text-2xl font-bold">${totalDeposits.toLocaleString()}</div>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="shadow-md rounded-lg bg-yellow-50 border-yellow-200">
           <CardHeader>
             <CardTitle>Pending Payments</CardTitle>
           </CardHeader>
@@ -94,7 +94,7 @@ export default function IncomesPage() {
           </CardContent>
         </Card>
       </div>
-      <Card>
+      <Card className="shadow-lg rounded-xl">
         <CardHeader>
           <CardTitle>Income Details</CardTitle>
         </CardHeader>
@@ -111,16 +111,16 @@ export default function IncomesPage() {
               </thead>
               <tbody>
                 {deposits.map((d) => (
-                  <tr key={"deposit-" + d.id} className="bg-blue-50">
-                    <td className="px-4 py-2">Security Deposit</td>
+                  <tr key={"deposit-" + d.id} className="bg-blue-50 hover:bg-blue-100 transition-colors">
+                    <td className="px-4 py-2 font-medium">Security Deposit</td>
                     <td className="px-4 py-2">${d.amount?.toLocaleString()}</td>
                     <td className="px-4 py-2">{d.paidDate ? new Date(d.paidDate).toLocaleDateString() : "-"}</td>
                     <td className="px-4 py-2">{d.paymentMethod || "-"}</td>
                   </tr>
                 ))}
                 {payments.map((p) => (
-                  <tr key={"payment-" + p.id}>
-                    <td className="px-4 py-2">Rent Payment</td>
+                  <tr key={"payment-" + p.id} className="hover:bg-green-50 transition-colors">
+                    <td className="px-4 py-2 font-medium">Rent Payment</td>
                     <td className="px-4 py-2">${p.amount?.toLocaleString()}</td>
                     <td className="px-4 py-2">{p.paidDate ? new Date(p.paidDate).toLocaleDateString() : "-"}</td>
                     <td className="px-4 py-2">{p.paymentMethod || "-"}</td>
