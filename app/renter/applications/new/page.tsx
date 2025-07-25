@@ -9,8 +9,10 @@ import { Label } from "@/components/ui/label"
 import { useAuth } from "@/lib/auth"
 import { invitationService } from "@/lib/services/invitation-service"
 import { propertyService } from "@/lib/services/property-service"
-// import { applicationService } from "@/lib/services/application-service" // implement as needed
 import { Plus } from "lucide-react"
+import { storage } from "@/lib/firebase"
+import { applicationService } from "@/lib/services/application-service"
+import { ref as storageRef, uploadString, uploadBytes, getDownloadURL } from "firebase/storage"
 
 export default function NewApplicationPage() {
   const router = useRouter()
@@ -213,19 +215,48 @@ export default function NewApplicationPage() {
   const handleSubmit = async (e: any) => {
     e.preventDefault()
     setSubmitting(true)
-    // Save application to Firestore (implement applicationService as needed)
-    // await applicationService.createApplication({
-    //   ...form,
-    //   applicants,
-    //   occupants,
-    //   employments,
-    //   references,
-    //   autos,
-    //   invitationId,
-    //   propertyId: invitation?.propertyId || property?.id,
-    //   landlordId: invitation?.landlordId,
-    //   renterEmail: user?.email
-    // })
+
+    // 1. Upload signatures as PNGs to Storage
+    const signatureUrls: string[] = [];
+    for (let i = 0; i < signaturePadRefs.current.length; i++) {
+      const canvas = signaturePadRefs.current[i];
+      if (canvas) {
+        const dataUrl = canvas.toDataURL("image/png");
+        const sigRef = storageRef(storage, `applications/signatures/${Date.now()}_${i}.png`);
+        await uploadString(sigRef, dataUrl, 'data_url');
+        const url = await getDownloadURL(sigRef);
+        signatureUrls.push(url);
+      } else {
+        signatureUrls.push("");
+      }
+    }
+
+    // 2. Upload attachments to Storage
+    const attachmentUrls: string[] = [];
+    for (let i = 0; i < attachments.length; i++) {
+      const file = attachments[i];
+      const fileRef = storageRef(storage, `applications/attachments/${Date.now()}_${file.name}`);
+      await uploadBytes(fileRef, file);
+      const url = await getDownloadURL(fileRef);
+      attachmentUrls.push(url);
+    }
+
+    // 3. Save application data to Firestore
+    await applicationService.createApplication({
+      ...form,
+      applicants,
+      occupants,
+      employments,
+      references,
+      autos,
+      invitationId,
+      propertyId: invitation?.propertyId || property?.id,
+      landlordId: invitation?.landlordId,
+      renterEmail: user?.email,
+      signatures: signatureUrls,
+      attachments: attachmentUrls,
+    });
+
     setSubmitting(false)
     router.push("/renter/dashboard")
   }
