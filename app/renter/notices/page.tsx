@@ -30,7 +30,8 @@ export default function RenterNoticesPage() {
 
   useEffect(() => {
     if (!user || !user.email || !user.id) return;
-    async function fetchData() {
+    const fetchData = async () => {
+      if (!user?.email) return;
       const realNotices = await noticeService.getRenterNotices(user.email)
       setNotices(realNotices)
       const invs = await invitationService.getInvitationsForEmail(user.email)
@@ -40,7 +41,7 @@ export default function RenterNoticesPage() {
   }, [user])
 
   useEffect(() => {
-    if (!user?.email) return;
+    if (!user || !user.email) return;
     leaseService.getRenterLeases(user.email).then(setLeases);
   }, [user?.email]);
 
@@ -114,13 +115,15 @@ export default function RenterNoticesPage() {
     return urgentTypes.includes(type) ? "high" : "normal"
   }
 
-  const markNoticeAsRead = (noticeId: string) => {
+  const markNoticeAsRead = async (noticeId: string) => {
     setNotices((prev) => prev.map((notice) => (notice.id === noticeId ? { ...notice, readAt: new Date() } : notice)))
+    await noticeService.markAsRead(noticeId);
   }
 
   const handleAcceptLeaseFromNotice = async (notice: Notice) => {
     // Find the lease for this property and renter
     // (Assume only one active lease per property/renter)
+    if (!user || !user.email) return;
     const leases = await leaseService.getRenterLeases(user.email)
     const lease = leases.find(l => l.propertyId === notice.propertyId)
     if (!lease) return;
@@ -176,46 +179,44 @@ export default function RenterNoticesPage() {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card>
+      <div className="grid gap-4 md:grid-cols-4">
+        <Card className="p-2">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Notices</CardTitle>
+            <CardTitle className="text-xs font-medium">Total Notices</CardTitle>
             <Calendar className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{notices.length}</div>
+            <div className="text-xl font-bold">{notices.length}</div>
             <p className="text-xs text-muted-foreground">All time</p>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="p-2">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Invitations</CardTitle>
+            <CardTitle className="text-xs font-medium">Invitations</CardTitle>
             <Eye className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-primary">{invitationCount}</div>
+            <div className="text-xl font-bold text-primary">{invitationCount}</div>
             <p className="text-xs text-muted-foreground">Received</p>
           </CardContent>
         </Card>
-
-        <Card>
+        <Card className="p-2">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Unread Notices</CardTitle>
+            <CardTitle className="text-xs font-medium">Unread Notices</CardTitle>
             <Eye className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-destructive">{unreadCount}</div>
+            <div className="text-xl font-bold text-destructive">{unreadCount}</div>
             <p className="text-xs text-muted-foreground">Require attention</p>
           </CardContent>
         </Card>
-
-        <Card>
+        <Card className="p-2">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Urgent Notices</CardTitle>
+            <CardTitle className="text-xs font-medium">Urgent Notices</CardTitle>
             <AlertTriangle className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-warning">{urgentCount}</div>
+            <div className="text-xl font-bold text-warning">{urgentCount}</div>
             <p className="text-xs text-muted-foreground">High priority</p>
           </CardContent>
         </Card>
@@ -325,10 +326,6 @@ export default function RenterNoticesPage() {
           notice={selectedNotice}
           isOpen={!!selectedNotice}
           onClose={() => setSelectedNotice(null)}
-          onAcceptLease={selectedNotice && selectedNotice.type === "lease_violation" && selectedNotice.subject?.toLowerCase().includes("lease created") ? () => handleAcceptLeaseFromNotice(selectedNotice) : undefined}
-          accepted={selectedNotice && selectedNotice.type === "lease_violation" && selectedNotice.subject?.toLowerCase().includes("lease created") ? getLeaseAcceptanceStatus(selectedNotice) : undefined}
-          propertyAddress={propertyAddress}
-          landlordName={landlordName}
         />
       )}
     </div>

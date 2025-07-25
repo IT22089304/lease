@@ -11,9 +11,11 @@ import type { LeaseApplication, Property } from "@/types"
 import { applicationService } from "@/lib/services/application-service"
 import { propertyService } from "@/lib/services/property-service"
 import { toDateString } from "@/lib/utils"
+import { useRouter } from "next/navigation"
 
 export default function ApplicationsPage() {
   const { user } = useAuth()
+  const router = useRouter()
   const [applications, setApplications] = useState<LeaseApplication[]>([])
   const [properties, setProperties] = useState<Property[]>([])
 
@@ -66,13 +68,31 @@ export default function ApplicationsPage() {
     return `${addr.street}${addr.unit ? `, Unit ${addr.unit}` : ""}, ${addr.city}, ${addr.state}`
   }
 
-  const handleApprove = (applicationId: string) => {
+  const handleApprove = async (applicationId: string) => {
+    await applicationService.updateApplicationStatus(applicationId, "approved")
     setApplications((prev) =>
       prev.map((app) => (app.id === applicationId ? { ...app, status: "approved", reviewedAt: new Date() } : app)),
     )
+    // Find the approved application
+    const app = applications.find((a) => a.id === applicationId)
+    if (app) {
+      // Prepare query params
+      const params = new URLSearchParams({
+        propertyId: app.propertyId,
+        renterEmail: app.renterEmail,
+      })
+      if (app.applicationData?.personalInfo?.fullName) {
+        params.append("fullName", app.applicationData.personalInfo.fullName)
+      }
+      if (app.applicationData?.personalInfo?.phone) {
+        params.append("phone", app.applicationData.personalInfo.phone)
+      }
+      router.push(`/wizard/lease?${params.toString()}`)
+    }
   }
 
-  const handleReject = (applicationId: string) => {
+  const handleReject = async (applicationId: string) => {
+    await applicationService.updateApplicationStatus(applicationId, "rejected")
     setApplications((prev) =>
       prev.map((app) => (app.id === applicationId ? { ...app, status: "rejected", reviewedAt: new Date() } : app)),
     )
@@ -302,7 +322,7 @@ function ApplicationCard({ application, propertyAddress, onApprove, onReject }: 
               <Download className="h-4 w-4 mr-2" />
               Download
             </Button>
-            {(application.status === "submitted" || application.status === "under_review") && (
+            {(!["approved", "rejected"].includes(application.status)) && (
               <>
                 <Button size="sm" onClick={() => onApprove(application.id)}>
                   <CheckCircle className="h-4 w-4 mr-2" />

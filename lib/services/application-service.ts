@@ -1,4 +1,4 @@
-import { collection, addDoc, serverTimestamp, query, where, getDocs } from "firebase/firestore"
+import { collection, addDoc, serverTimestamp, query, where, getDocs, doc, updateDoc } from "firebase/firestore"
 import { db } from "../firebase"
 
 export const applicationService = {
@@ -25,5 +25,14 @@ export const applicationService = {
     const q = query(collection(db, "applications"), where("landlordId", "==", landlordId))
     const snapshot = await getDocs(q)
     return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+  },
+
+  async updateApplicationStatus(applicationId: string, status: string) {
+    const docRef = doc(db, "applications", applicationId)
+    await updateDoc(docRef, {
+      status,
+      reviewedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    })
   },
 } 

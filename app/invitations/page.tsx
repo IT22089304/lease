@@ -11,6 +11,7 @@ import { useAuth } from "@/lib/auth"
 import type { LeaseInvitation, Property } from "@/types"
 import { invitationService } from "@/lib/services/invitation-service"
 import { propertyService } from "@/lib/services/property-service"
+import { useRouter } from "next/navigation"
 
 // Helper to safely convert Firestore Timestamp, string, or Date to a readable date string
 function toDateString(val: any) {
@@ -23,6 +24,7 @@ function toDateString(val: any) {
 
 export default function InvitationsPage() {
   const { user } = useAuth()
+  const router = useRouter()
   // Firestore returns plain objects, not LeaseInvitation typed objects
   const [invitations, setInvitations] = useState<any[]>([])
   const [properties, setProperties] = useState<Property[]>([])
@@ -63,6 +65,18 @@ export default function InvitationsPage() {
       console.error("Failed to send invitation:", error)
       alert("Failed to send invitation. Please try again.")
     }
+  }
+
+  const handleAccept = async (invitation: any) => {
+    await invitationService.updateInvitationStatus(invitation.id, "accepted")
+    // Redirect to lease creation with prefilled renterEmail
+    router.push(`/wizard/lease?propertyId=${invitation.propertyId}&renterEmail=${encodeURIComponent(invitation.renterEmail)}`)
+  }
+  const handleReject = async (invitation: any) => {
+    await invitationService.updateInvitationStatus(invitation.id, "declined")
+    // Optionally refresh invitations
+    const realInvitations = await invitationService.getLandlordInvitations(user.id)
+    setInvitations(realInvitations)
   }
 
   const getStatusBadge = (status: LeaseInvitation["status"]) => {
@@ -195,10 +209,20 @@ export default function InvitationsPage() {
                   </div>
                 </div>
                 <div className="flex gap-2">
-                  <Button variant="outline" size="sm">
+                  <Button variant="outline" size="sm" onClick={() => router.push(`/renter/invitations/${invitation.id}`)}>
                     <Eye className="h-4 w-4 mr-2" />
                     View Details
                   </Button>
+                  {invitation.status === "pending" && (
+                    <>
+                      <Button variant="outline" size="sm" onClick={() => handleAccept(invitation)}>
+                        Accept
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => handleReject(invitation)}>
+                        Reject
+                      </Button>
+                    </>
+                  )}
                   {invitation.status === "pending" && (
                     <Button variant="outline" size="sm">
                       Resend

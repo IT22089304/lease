@@ -83,71 +83,73 @@ export default function LeaseWizardPage() {
   }
 
   return (
-    <div className="container mx-auto p-6 max-w-xl">
-      <h1 className="text-2xl font-bold mb-6">Create Lease for {property.address.street}</h1>
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <label className="block font-medium mb-1">Renter ID</label>
-          <input
-            name="renterId"
-            value={form.renterId}
-            onChange={handleChange}
-            className="input"
-            required
-          />
-        </div>
-        <div className="flex gap-4">
-          <div className="flex-1">
-            <label className="block font-medium mb-1">Start Date</label>
+    <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="w-full max-w-md bg-card rounded-xl shadow-lg p-8 border">
+        <h1 className="text-2xl font-bold mb-6 text-center text-primary">Create Lease for {property.address.street}</h1>
+        <form onSubmit={handleSubmit} className="space-y-5">
+          <div>
+            <label className="block text-sm font-medium mb-1 text-foreground">Renter ID</label>
             <input
-              type="date"
-              name="startDate"
-              value={form.startDate}
+              name="renterId"
+              value={form.renterId}
               onChange={handleChange}
-              className="input"
+              className="w-full px-3 py-2 border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
               required
             />
           </div>
-          <div className="flex-1">
-            <label className="block font-medium mb-1">End Date</label>
-            <input
-              type="date"
-              name="endDate"
-              value={form.endDate}
-              onChange={handleChange}
-              className="input"
-              required
-            />
+          <div className="flex gap-4">
+            <div className="flex-1">
+              <label className="block text-sm font-medium mb-1 text-foreground">Start Date</label>
+              <input
+                type="date"
+                name="startDate"
+                value={form.startDate}
+                onChange={handleChange}
+                className="w-full px-3 py-2 border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                required
+              />
+            </div>
+            <div className="flex-1">
+              <label className="block text-sm font-medium mb-1 text-foreground">End Date</label>
+              <input
+                type="date"
+                name="endDate"
+                value={form.endDate}
+                onChange={handleChange}
+                className="w-full px-3 py-2 border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                required
+              />
+            </div>
           </div>
-        </div>
-        <div className="flex gap-4">
-          <div className="flex-1">
-            <label className="block font-medium mb-1">Monthly Rent</label>
-            <input
-              type="number"
-              name="monthlyRent"
-              value={form.monthlyRent}
-              onChange={handleChange}
-              className="input"
-              required
-            />
+          <div className="flex gap-4">
+            <div className="flex-1">
+              <label className="block text-sm font-medium mb-1 text-foreground">Monthly Rent</label>
+              <input
+                type="number"
+                name="monthlyRent"
+                value={form.monthlyRent}
+                onChange={handleChange}
+                className="w-full px-3 py-2 border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                required
+              />
+            </div>
+            <div className="flex-1">
+              <label className="block text-sm font-medium mb-1 text-foreground">Security Deposit</label>
+              <input
+                type="number"
+                name="securityDeposit"
+                value={form.securityDeposit}
+                onChange={handleChange}
+                className="w-full px-3 py-2 border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                required
+              />
+            </div>
           </div>
-          <div className="flex-1">
-            <label className="block font-medium mb-1">Security Deposit</label>
-            <input
-              type="number"
-              name="securityDeposit"
-              value={form.securityDeposit}
-              onChange={handleChange}
-              className="input"
-              required
-            />
-          </div>
-        </div>
-        <Button type="submit" disabled={loading} className="w-full">
-          {loading ? "Creating..." : "Create Lease"}
-        </Button>
-      </form>
+          <Button type="submit" disabled={loading} className="w-full mt-2">
+            {loading ? "Creating..." : "Create Lease"}
+          </Button>
+        </form>
+      </div>
     </div>
   )
 }

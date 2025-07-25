@@ -16,6 +16,7 @@ import { noticeService } from "@/lib/services/notice-service"
 import { invitationService } from "@/lib/services/invitation-service"
 import { leaseService } from "@/lib/services/lease-service"
 import { paymentService } from "@/lib/services/payment-service"
+import { securityDepositService } from "@/lib/services/security-deposit-service"
 import { doc, getDoc } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 
@@ -54,14 +55,16 @@ export default function RenterDashboardPage() {
   const [invitations, setInvitations] = useState<any[]>([])
   const [landlordName, setLandlordName] = useState<string>("");
   const [propertyAddress, setPropertyAddress] = useState<string>("");
+  const [securityDeposits, setSecurityDeposits] = useState<any[]>([]);
 
   useEffect(() => {
     setIsClient(true)
   }, [])
 
   useEffect(() => {
-    if (!isClient || !user?.email) return;
+    if (!isClient || !user || !user.email) return;
     async function fetchData() {
+      if (!user || !user.email) return;
       // Fetch all leases for this renter
       const leases = await leaseService.getRenterLeases(user.email);
       // Sort leases by acceptance date (renterSignedAt) or createdAt descending
@@ -73,12 +76,15 @@ export default function RenterDashboardPage() {
       // Pick the most recently accepted lease, or the most recent lease if none accepted
       const lease = sortedLeases.find(l => l.signatureStatus?.renterSigned) || sortedLeases[0] || null;
       setCurrentLease(lease);
-      // Fetch payments for this lease
+      // Fetch payments and security deposits for this lease
       if (lease) {
         const payments = await paymentService.getLeasePayments(lease.id);
         setRecentPayments(payments);
+        const deposits = await securityDepositService.getDepositsByLease(lease.id);
+        setSecurityDeposits(deposits);
       } else {
         setRecentPayments([]);
+        setSecurityDeposits([]);
       }
       // Fetch notices and invitations as before
       const [realNotices, realInvitations] = await Promise.all([
@@ -133,12 +139,13 @@ export default function RenterDashboardPage() {
 
   // Add useEffect to fetch renter profile and set completion
   useEffect(() => {
-    if (!user?.id) return;
+    if (!user || !user.id) return;
     async function fetchProfile() {
+      if (!user || !user.id) return;
       const ref = doc(db, "renterProfiles", user.id);
       const snap = await getDoc(ref);
       if (snap.exists()) {
-        setProfile(snap.data());
+        setProfile(snap.data() as RenterProfile);
         setProfileCompletion(getProfileCompletion(snap.data()));
       } else {
         setProfileCompletion(0);
@@ -148,19 +155,28 @@ export default function RenterDashboardPage() {
   }, [user?.id]);
 
   // Helper to calculate next payment due
-  function getNextPaymentDue(lease, payments) {
+  function getNextPaymentDue(lease: Lease | null, payments: RentPayment[], securityDeposits: any[]): { amount: number, label: string } {
     if (!lease) return { amount: 0, label: "No lease" };
-    // Initial payment: securityDeposit + first month rent
-    const initialDue = lease.securityDeposit + lease.monthlyRent;
-    // Find if initial payment is paid (assume first payment covers both)
-    const initialPaid = payments.some(p => p.status === "paid" && p.amount >= initialDue);
-    if (!initialPaid) {
-      // Not paid yet
-      return { amount: initialDue, label: `Initial Payment: $${lease.securityDeposit} + $${lease.monthlyRent}` };
+    // Check if security deposit is paid
+    const depositPaid = securityDeposits.some((d: any) => d.amount >= lease.securityDeposit);
+    // Check if first month rent is paid
+    const firstRentPaid = payments.some((p: RentPayment) => p.status === "paid" && p.amount >= lease.monthlyRent);
+    if (!depositPaid || !firstRentPaid) {
+      let due = 0;
+      let labelParts = [];
+      if (!depositPaid) {
+        due += lease.securityDeposit;
+        labelParts.push(`Security Deposit: $${lease.securityDeposit}`);
+      }
+      if (!firstRentPaid) {
+        due += lease.monthlyRent;
+        labelParts.push(`First Month Rent: $${lease.monthlyRent}`);
+      }
+      return { amount: due, label: labelParts.join(" + ") };
     }
     // Find next unpaid monthly payment
     const now = new Date();
-    const nextUnpaid = payments.find(p => p.status !== "paid" && new Date(p.dueDate) <= now);
+    const nextUnpaid = payments.find((p: RentPayment) => p.status !== "paid" && new Date(p.dueDate) <= now);
     if (nextUnpaid) {
       return { amount: lease.monthlyRent, label: `Monthly Rent: $${lease.monthlyRent}` };
     }
@@ -171,6 +187,7 @@ export default function RenterDashboardPage() {
   const nextPaymentDue = recentPayments.find((p) => p.status === "pending")
   const unreadNotices = notices.filter((n) => !n.readAt)
   const totalPaid = recentPayments.filter((p) => p.status === "paid").reduce((sum, p) => sum + p.amount, 0)
+    + securityDeposits.reduce((sum, d) => sum + (d.amount || 0), 0);
 
   const handlePaymentSuccess = (paymentData: any) => {
     console.log("Payment processed:", paymentData)
@@ -220,7 +237,7 @@ export default function RenterDashboardPage() {
     return <div>Access denied. Renter access required.</div>
   }
 
-  const nextPayment = getNextPaymentDue(currentLease, recentPayments);
+  const nextPayment = getNextPaymentDue(currentLease, recentPayments, securityDeposits);
 
   return (
     <div className="container mx-auto p-6 space-y-6">

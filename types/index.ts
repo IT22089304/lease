@@ -123,6 +123,8 @@ export interface RentPayment {
   paymentMethod?: string
   transactionId?: string
   createdAt: Date
+  renterId?: string
+  landlordId?: string
 }
 
 export interface Notice {

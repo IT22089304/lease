@@ -45,13 +45,49 @@ service cloud.firestore {
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['signatureStatus']);
     }
 
-    // Notices: Landlords can CRUD, renters can read their own and mark as read
+    // PAYMENTS: Landlord and renter can read/create/update/delete their own
+    match /payments/{paymentId} {
+      allow read: if request.auth != null && (
+        (resource.data.landlordId != null && (request.auth.uid == resource.data.landlordId || request.auth.token.email == resource.data.landlordId)) ||
+        (resource.data.renterId != null && (request.auth.uid == resource.data.renterId || request.auth.token.email == resource.data.renterId)) ||
+        (resource.data.renterEmail != null && (request.auth.uid == resource.data.renterEmail || request.auth.token.email == resource.data.renterEmail))
+      );
+      allow create: if request.auth != null && (
+        (request.resource.data.landlordId != null && (request.auth.uid == request.resource.data.landlordId || request.auth.token.email == request.resource.data.landlordId)) ||
+        (request.resource.data.renterId != null && (request.auth.uid == request.resource.data.renterId || request.auth.token.email == request.resource.data.renterId)) ||
+        (request.resource.data.renterEmail != null && (request.auth.uid == request.resource.data.renterEmail || request.auth.token.email == request.resource.data.renterEmail))
+      );
+      allow update, delete: if request.auth != null && (
+        (resource.data.landlordId != null && (request.auth.uid == resource.data.landlordId || request.auth.token.email == resource.data.landlordId)) ||
+        (resource.data.renterId != null && (request.auth.uid == resource.data.renterId || request.auth.token.email == resource.data.renterId)) ||
+        (resource.data.renterEmail != null && (request.auth.uid == resource.data.renterEmail || request.auth.token.email == resource.data.renterEmail))
+      );
+    }
+
+    // SECURITY DEPOSITS: Landlord and renter can read, landlord can create/update/delete
+    match /securityDeposits/{depositId} {
+      allow read: if request.auth != null && (
+        (resource.data.landlordId != null && (request.auth.uid == resource.data.landlordId || request.auth.token.email == resource.data.landlordId)) ||
+        (resource.data.renterId != null && (request.auth.uid == resource.data.renterId || request.auth.token.email == resource.data.renterId)) ||
+        (resource.data.renterEmail != null && (request.auth.uid == resource.data.renterEmail || request.auth.token.email == resource.data.renterEmail))
+      );
+      allow create: if request.auth != null && (
+        request.resource.data.landlordId != null && (request.auth.uid == request.resource.data.landlordId || request.auth.token.email == request.resource.data.landlordId)
+      );
+      allow update, delete: if request.auth != null && (
+        resource.data.landlordId != null && (request.auth.uid == resource.data.landlordId || request.auth.token.email == resource.data.landlordId)
+      );
+    }
+
+    // NOTICES: Landlord and renter can read, landlord can write, renter can only update 'readAt'
     match /notices/{noticeId} {
       allow read: if request.auth != null && (
         request.auth.uid == resource.data.landlordId ||
         request.auth.token.email == resource.data.landlordId ||
         resource.data.renterId == request.auth.token.email ||
-        resource.data.renterId == request.auth.uid
+        resource.data.renterId == request.auth.uid ||
+        resource.data.renterEmail == request.auth.token.email ||
+        resource.data.renterEmail == request.auth.uid
       );
       allow write, update, delete: if request.auth != null && (
         request.auth.uid == resource.data.landlordId ||
@@ -63,11 +99,12 @@ service cloud.firestore {
       );
       // Renters can only update 'readAt' field
       allow update: if request.auth != null &&
-        (resource.data.renterId == request.auth.token.email || resource.data.renterId == request.auth.uid) &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readAt']);
+        ((resource.data.renterId == request.auth.token.email || resource.data.renterId == request.auth.uid ||
+          resource.data.renterEmail == request.auth.token.email || resource.data.renterEmail == request.auth.uid) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readAt']));
     }
 
-    // Invitations: Landlords can CRUD, renters can read/respond
+    // INVITATIONS: Landlord and invited renter can read, landlord can create/delete, renter can update status/respond
     match /invitations/{invitationId} {
       allow read: if request.auth != null && (
         request.auth.uid == resource.data.landlordId ||
@@ -106,23 +143,6 @@ service cloud.firestore {
         request.auth.token.email == resource.data.landlordId ||
         request.auth.uid == resource.data.renterId ||
         request.auth.token.email == resource.data.renterId
-      );
-    }
-
-    // Payments: Landlords and renters can read and create payments for their leases
-    match /payments/{paymentId} {
-      allow read: if request.auth != null && (
-        // Allow if the user is the landlord or renter of the payment's lease
-        (resource.data.landlordId != null && (request.auth.uid == resource.data.landlordId || request.auth.token.email == resource.data.landlordId)) ||
-        (resource.data.renterId != null && (request.auth.uid == resource.data.renterId || request.auth.token.email == resource.data.renterId))
-      );
-      allow create: if request.auth != null && (
-        (request.resource.data.landlordId != null && (request.auth.uid == request.resource.data.landlordId || request.auth.token.email == request.resource.data.landlordId)) ||
-        (request.resource.data.renterId != null && (request.auth.uid == request.resource.data.renterId || request.auth.token.email == request.resource.data.renterId))
-      );
-      allow update, delete: if request.auth != null && (
-        (resource.data.landlordId != null && (request.auth.uid == resource.data.landlordId || request.auth.token.email == resource.data.landlordId)) ||
-        (resource.data.renterId != null && (request.auth.uid == resource.data.renterId || request.auth.token.email == resource.data.renterId))
       );
     }
 

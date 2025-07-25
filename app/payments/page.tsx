@@ -20,15 +20,18 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { securityDepositService } from "@/lib/services/security-deposit-service"
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!)
 
-function getNextPaymentDue(lease, payments) {
+function getNextPaymentDue(lease: any, payments: any[], securityDeposits: any[]) {
   if (!lease) return { amount: 0, label: "No lease" };
-  const initialDue = lease.securityDeposit + lease.monthlyRent;
-  const initialPaid = payments.some(p => p.status === "paid" && p.amount >= initialDue);
-  if (!initialPaid) {
-    return { amount: initialDue, label: `Initial Payment: $${lease.securityDeposit} + $${lease.monthlyRent}` };
+  // Check if security deposit is paid
+  const depositPaid = securityDeposits.some(d => d.amount >= lease.securityDeposit);
+  // Check if first month rent is paid
+  const firstRentPaid = payments.some(p => p.status === "paid" && p.amount >= lease.monthlyRent);
+  if (!depositPaid || !firstRentPaid) {
+    return { amount: lease.securityDeposit + lease.monthlyRent, label: `Initial Payment: $${lease.securityDeposit} + $${lease.monthlyRent}` };
   }
   const now = new Date();
   const nextUnpaid = payments.find(p => p.status !== "paid" && new Date(p.dueDate) <= now);
@@ -38,13 +41,13 @@ function getNextPaymentDue(lease, payments) {
   return { amount: 0, label: "All payments up to date" };
 }
 
-function StripeCardForm({ amount, onSuccess, onCancel }) {
+function StripeCardForm({ amount, onSuccess, onCancel }: { amount: number, onSuccess: (data: any) => void, onCancel: () => void }) {
   const stripe = useStripe();
   const elements = useElements();
   const [isProcessing, setIsProcessing] = useState(false);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsProcessing(true);
     setError(null);
@@ -235,6 +238,7 @@ export default function PaymentsPage() {
   const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false);
   const [nextPayment, setNextPayment] = useState({ amount: 0, label: "" });
   const [paymentSuccess, setPaymentSuccess] = useState(false);
+  const [securityDeposits, setSecurityDeposits] = useState<any[]>([]);
 
   useEffect(() => {
     async function fetchPayments() {
@@ -242,16 +246,20 @@ export default function PaymentsPage() {
       const leases = await leaseService.getRenterLeases(user.email);
       setLeases(leases);
       let allPayments: RentPayment[] = [];
+      let allDeposits: any[] = [];
       for (const lease of leases) {
         const payments = await paymentService.getLeasePayments(lease.id);
         allPayments = allPayments.concat(payments);
+        const deposits = await securityDepositService.getDepositsByLease(lease.id);
+        allDeposits = allDeposits.concat(deposits);
       }
       allPayments.sort((a, b) => (b.dueDate?.getTime?.() || 0) - (a.dueDate?.getTime?.() || 0));
       setPayments(allPayments);
+      setSecurityDeposits(allDeposits);
       // Pick the most recent/active lease
       const lease = leases[0] || null;
       setCurrentLease(lease);
-      setNextPayment(getNextPaymentDue(lease, allPayments));
+      setNextPayment(getNextPaymentDue(lease, allPayments, allDeposits));
     }
     fetchPayments();
   }, [user?.email]);
@@ -259,7 +267,31 @@ export default function PaymentsPage() {
   const handlePaymentSuccess = async (paymentData: any) => {
     // Try to find a pending payment
     const pending = payments.find(p => p.status === "pending");
-    if (pending) {
+    const isInitialPayment = currentLease && paymentData.amount === (currentLease.securityDeposit + currentLease.monthlyRent);
+    if (isInitialPayment && currentLease) {
+      // Split and record security deposit
+      await securityDepositService.createDeposit({
+        leaseId: currentLease.id,
+        renterId: currentLease.renterId,
+        landlordId: currentLease.landlordId,
+        amount: currentLease.securityDeposit,
+        paidDate: new Date(),
+        paymentMethod: paymentData.method,
+        transactionId: paymentData.stripeId,
+      });
+      // Record first month rent as payment
+      await paymentService.createPayment({
+        leaseId: currentLease.id,
+        amount: currentLease.monthlyRent,
+        dueDate: new Date(),
+        paidDate: new Date(),
+        status: "paid",
+        paymentMethod: paymentData.method,
+        transactionId: paymentData.stripeId,
+        renterId: currentLease.renterId,
+        landlordId: currentLease.landlordId,
+      });
+    } else if (pending) {
       await paymentService.updatePayment(pending.id, {
         status: "paid",
         paidDate: new Date(),
@@ -276,7 +308,6 @@ export default function PaymentsPage() {
         status: "paid",
         paymentMethod: paymentData.method,
         transactionId: paymentData.stripeId,
-        createdAt: new Date(),
         renterId: currentLease.renterId,      // Ensure these fields are included
         landlordId: currentLease.landlordId,  // Ensure these fields are included
       });
@@ -288,13 +319,19 @@ export default function PaymentsPage() {
     if (user?.email) {
       const leases = await leaseService.getRenterLeases(user.email);
       let allPayments: RentPayment[] = [];
+      let allDeposits: any[] = [];
       for (const lease of leases) {
         const payments = await paymentService.getLeasePayments(lease.id);
         allPayments = allPayments.concat(payments);
+        const deposits = await securityDepositService.getDepositsByLease(lease.id);
+        allDeposits = allDeposits.concat(deposits);
       }
       allPayments.sort((a, b) => (b.dueDate?.getTime?.() || 0) - (a.dueDate?.getTime?.() || 0));
       setPayments(allPayments);
-      setNextPayment(getNextPaymentDue(currentLease, allPayments));
+      setSecurityDeposits(allDeposits);
+      const lease = leases[0] || null;
+      setCurrentLease(lease);
+      setNextPayment(getNextPaymentDue(lease, allPayments, allDeposits));
     }
   };
 
@@ -314,12 +351,32 @@ export default function PaymentsPage() {
     saveAs(blob, `rent-payments-receipt.txt`);
   };
 
-  const totalPaid = payments.filter((p) => p.status === "paid").reduce((sum, p) => sum + p.amount, 0);
-  const totalPending = payments.filter((p) => p.status === "pending").reduce((sum, p) => sum + p.amount, 0);
+  // Calculate total paid including both rent payments and security deposits
+  const totalPaid = payments.filter((p) => p.status === "paid").reduce((sum, p) => sum + p.amount, 0)
+    + securityDeposits.reduce((sum, d) => sum + (d.amount || 0), 0);
+
+  // Calculate pending payments, considering both collections for initial payment
+  const pendingPayments = payments.filter((p) => p.status === "pending");
+  let totalPending = 0;
+  if (pendingPayments.length > 0) {
+    totalPending = pendingPayments.reduce((sum, p) => sum + p.amount, 0);
+  } else if (currentLease) {
+    // Initial payment logic: only add unpaid portions
+    const depositPaid = securityDeposits.some(d => d.amount >= currentLease.securityDeposit);
+    const firstRentPaid = payments.some(p => p.status === "paid" && p.amount >= currentLease.monthlyRent);
+    if (!depositPaid || !firstRentPaid) {
+      let due = 0;
+      if (!depositPaid) due += currentLease.securityDeposit;
+      if (!firstRentPaid) due += currentLease.monthlyRent;
+      totalPending = due;
+    } else {
+      totalPending = 0;
+    }
+  }
 
   const handleExportAllPaymentsPDF = () => {
     // Use properties, not leases, for property lookup
-    const doc = generateAllPaymentsPDF(payments, leases, user?.landlord, user?.renter);
+    const doc = generateAllPaymentsPDF(payments, leases, user, user);
     doc.save("all-payments-receipt.pdf");
   };
 
@@ -410,6 +467,7 @@ export default function PaymentsPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-warning">${totalPending.toLocaleString()}</div>
+            <p className="text-xs text-muted-foreground">Amount you still have to pay</p>
           </CardContent>
         </Card>
 
@@ -422,7 +480,7 @@ export default function PaymentsPage() {
             <CardContent>
               <div className="text-2xl font-bold">${payments.find((p) => p.status === "pending")?.amount.toLocaleString()}</div>
               <p className="text-xs text-muted-foreground">
-                Due {new Date(payments.find((p) => p.status === "pending")?.dueDate).toLocaleDateString()}
+                Due {(() => { const dueDate = payments.find((p) => p.status === "pending")?.dueDate; return dueDate ? new Date(dueDate).toLocaleDateString() : "-"; })()}
               </p>
             </CardContent>
           </Card>
@@ -438,6 +496,29 @@ export default function PaymentsPage() {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
+            {/* Show security deposits first, labeled */}
+            {securityDeposits.map((deposit) => (
+              <div key={deposit.id} className="flex items-center justify-between p-4 border rounded-lg bg-blue-50">
+                <div className="flex items-center gap-4">
+                  <div className="w-3 h-3 rounded-full bg-blue-500" />
+                  <div>
+                    <p className="font-medium">${deposit.amount.toLocaleString()} <span className="text-xs text-blue-700">(Security Deposit)</span></p>
+                    <p className="text-sm text-muted-foreground">
+                      Paid: {deposit.paidDate ? new Date(deposit.paidDate).toLocaleDateString() : "-"}
+                    </p>
+                    {deposit.paymentMethod && (
+                      <p className="text-xs text-muted-foreground">
+                        Method: {deposit.paymentMethod}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="status-badge bg-blue-100 text-blue-700 border-blue-200 px-2 py-1 rounded text-xs">Deposit</span>
+                </div>
+              </div>
+            ))}
+            {/* Show regular payments */}
             {payments.map((payment) => (
               <div key={payment.id} className="flex items-center justify-between p-4 border rounded-lg">
                 <div className="flex items-center gap-4">
@@ -453,7 +534,7 @@ export default function PaymentsPage() {
                   <div>
                     <p className="font-medium">${payment.amount.toLocaleString()}</p>
                     <p className="text-sm text-muted-foreground">
-                      Due: {new Date(payment.dueDate).toLocaleDateString()}
+                      Due: {payment.dueDate ? new Date(payment.dueDate).toLocaleDateString() : "-"}
                       {payment.paidDate && ` • Paid: ${new Date(payment.paidDate).toLocaleDateString()}`}
                     </p>
                     {payment.paymentMethod && (
