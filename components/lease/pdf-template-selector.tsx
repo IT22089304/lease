@@ -3,18 +3,29 @@
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { FileText, Download, Eye } from "lucide-react"
+import { FileText, Download, Eye, Edit } from "lucide-react"
 import { templateService, TemplateMeta } from "@/lib/services/template-service"
+import { PDFFillerViewer } from "@/components/ui/pdf-filler-viewer"
 
 interface PDFTemplateSelectorProps {
   onTemplateSelect: (template: TemplateMeta | null) => void
   selectedTemplate?: TemplateMeta | null
+  propertyId?: string
+  landlordId?: string
 }
 
-export function PDFTemplateSelector({ onTemplateSelect, selectedTemplate }: PDFTemplateSelectorProps) {
+export function PDFTemplateSelector({ 
+  onTemplateSelect, 
+  selectedTemplate, 
+  propertyId,
+  landlordId 
+}: PDFTemplateSelectorProps) {
   const [templates, setTemplates] = useState<TemplateMeta[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState("all")
+  const [pdfViewerOpen, setPdfViewerOpen] = useState(false)
+  const [selectedPdfUrl, setSelectedPdfUrl] = useState("")
+  const [selectedPdfTitle, setSelectedPdfTitle] = useState("")
 
   useEffect(() => {
     fetchTemplates()
@@ -45,6 +56,18 @@ export function PDFTemplateSelector({ onTemplateSelect, selectedTemplate }: PDFT
 
   const handleClearSelection = () => {
     onTemplateSelect(null)
+  }
+
+  const handleViewPdf = (template: TemplateMeta) => {
+    setSelectedPdfUrl(template.url)
+    setSelectedPdfTitle(template.name)
+    setPdfViewerOpen(true)
+  }
+
+  const handleClosePdfViewer = () => {
+    setPdfViewerOpen(false)
+    setSelectedPdfUrl("")
+    setSelectedPdfTitle("")
   }
 
   if (loading) {
@@ -99,10 +122,12 @@ export function PDFTemplateSelector({ onTemplateSelect, selectedTemplate }: PDFT
                 </div>
               </div>
               <div className="flex gap-1">
-                <Button size="sm" variant="outline" asChild>
-                  <a href={selectedTemplate.url} target="_blank" rel="noopener noreferrer">
-                    <Eye className="h-3 w-3" />
-                  </a>
+                <Button 
+                  size="sm" 
+                  variant="outline" 
+                  onClick={() => handleViewPdf(selectedTemplate)}
+                >
+                  <Edit className="h-3 w-3" />
                 </Button>
                 <Button size="sm" variant="outline" asChild>
                   <a href={selectedTemplate.url} download>
@@ -167,10 +192,12 @@ export function PDFTemplateSelector({ onTemplateSelect, selectedTemplate }: PDFT
                         </div>
                       </div>
                       <div className="flex gap-1">
-                        <Button size="sm" variant="outline" asChild>
-                          <a href={template.url} target="_blank" rel="noopener noreferrer">
-                            <Eye className="h-3 w-3" />
-                          </a>
+                        <Button 
+                          size="sm" 
+                          variant="outline" 
+                          onClick={() => handleViewPdf(template)}
+                        >
+                          <Edit className="h-3 w-3" />
                         </Button>
                         <Button size="sm" variant="outline" asChild>
                           <a href={template.url} download>
@@ -192,6 +219,15 @@ export function PDFTemplateSelector({ onTemplateSelect, selectedTemplate }: PDFT
           )}
         </>
       )}
+
+      <PDFFillerViewer
+        isOpen={pdfViewerOpen}
+        onClose={handleClosePdfViewer}
+        pdfUrl={selectedPdfUrl}
+        title={selectedPdfTitle}
+        propertyId={propertyId}
+        landlordId={landlordId}
+      />
     </div>
   )
 }
