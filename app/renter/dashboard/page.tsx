@@ -154,13 +154,15 @@ export default function RenterDashboardPage() {
     fetchProfile();
   }, [user?.id]);
 
-  // Helper to calculate next payment due
-  function getNextPaymentDue(lease: Lease | null, payments: RentPayment[], securityDeposits: any[]): { amount: number, label: string } {
-    if (!lease) return { amount: 0, label: "No lease" };
+  // Helper to calculate next payment due with proper billing cycle
+  function getNextPaymentDue(lease: Lease | null, payments: RentPayment[], securityDeposits: any[]): { amount: number, label: string, daysUntilDue: number } {
+    if (!lease) return { amount: 0, label: "No lease", daysUntilDue: 0 };
+    
     // Check if security deposit is paid
     const depositPaid = securityDeposits.some((d: any) => d.amount >= lease.securityDeposit);
     // Check if first month rent is paid
     const firstRentPaid = payments.some((p: RentPayment) => p.status === "paid" && p.amount >= lease.monthlyRent);
+    
     if (!depositPaid || !firstRentPaid) {
       let due = 0;
       let labelParts = [];
@@ -172,16 +174,52 @@ export default function RenterDashboardPage() {
         due += lease.monthlyRent;
         labelParts.push(`First Month Rent: $${lease.monthlyRent}`);
       }
-      return { amount: due, label: labelParts.join(" + ") };
+      // For initial payments, due immediately (0 days)
+      return { amount: due, label: labelParts.join(" + "), daysUntilDue: 0 };
     }
-    // Find next unpaid monthly payment
+    
+    // Find the last paid payment to calculate next billing cycle
+    const paidPayments = payments.filter(p => p.status === "paid").sort((a, b) => 
+      new Date(b.paidDate || b.dueDate).getTime() - new Date(a.paidDate || a.dueDate).getTime()
+    );
+    
+    if (paidPayments.length === 0) {
+      // No paid payments, use lease start date
+      const leaseStartDate = new Date(lease.startDate);
+      const now = new Date();
+      const daysUntilDue = Math.ceil((leaseStartDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+      return { 
+        amount: lease.monthlyRent, 
+        label: `Monthly Rent: $${lease.monthlyRent}`, 
+        daysUntilDue: Math.max(0, daysUntilDue) 
+      };
+    }
+    
+    // Get the last paid payment date
+    const lastPaidDate = new Date(paidPayments[0].paidDate || paidPayments[0].dueDate);
     const now = new Date();
-    const nextUnpaid = payments.find((p: RentPayment) => p.status !== "paid" && new Date(p.dueDate) <= now);
-    if (nextUnpaid) {
-      return { amount: lease.monthlyRent, label: `Monthly Rent: $${lease.monthlyRent}` };
+    
+    // Calculate next billing cycle: last payment date + 30 days - days spent in paid month
+    const daysSpentInPaidMonth = Math.ceil((now.getTime() - lastPaidDate.getTime()) / (1000 * 60 * 60 * 24));
+    const nextBillingDate = new Date(lastPaidDate);
+    nextBillingDate.setDate(nextBillingDate.getDate() + 30 - daysSpentInPaidMonth);
+    
+    // If next billing date is in the past, it means we're overdue
+    if (nextBillingDate <= now) {
+      return { 
+        amount: lease.monthlyRent, 
+        label: `Monthly Rent: $${lease.monthlyRent} (Overdue)`, 
+        daysUntilDue: 0 
+      };
     }
-    // All up to date
-    return { amount: 0, label: "All payments up to date" };
+    
+    const daysUntilDue = Math.ceil((nextBillingDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    
+    return { 
+      amount: lease.monthlyRent, 
+      label: `Monthly Rent: $${lease.monthlyRent}`, 
+      daysUntilDue: Math.max(0, daysUntilDue) 
+    };
   }
 
   const nextPaymentDue = recentPayments.find((p) => p.status === "pending")
@@ -238,6 +276,58 @@ export default function RenterDashboardPage() {
   }
 
   const nextPayment = getNextPaymentDue(currentLease, recentPayments, securityDeposits);
+
+  // Helper to generate next payment schedule
+  const generateNextPaymentSchedule = () => {
+    if (!currentLease) return [];
+    
+    const paidPayments = recentPayments.filter(p => p.status === "paid").sort((a, b) => 
+      new Date(b.paidDate || b.dueDate).getTime() - new Date(a.paidDate || a.dueDate).getTime()
+    );
+    
+    if (paidPayments.length === 0) {
+      // No paid payments, start from lease start date
+      const schedule = [];
+      let currentDate = new Date(currentLease.startDate);
+      const now = new Date();
+      
+      for (let i = 0; i < 6; i++) { // Show next 6 payments
+        if (currentDate > now) {
+          schedule.push({
+            date: new Date(currentDate),
+            amount: currentLease.monthlyRent,
+            label: `Monthly Rent ${i + 1}`
+          });
+        }
+        currentDate.setDate(currentDate.getDate() + 30);
+      }
+      return schedule;
+    }
+    
+    // Calculate from last paid payment
+    const lastPaidDate = new Date(paidPayments[0].paidDate || paidPayments[0].dueDate);
+    const now = new Date();
+    const daysSpentInPaidMonth = Math.ceil((now.getTime() - lastPaidDate.getTime()) / (1000 * 60 * 60 * 24));
+    
+    const schedule = [];
+    let nextBillingDate = new Date(lastPaidDate);
+    nextBillingDate.setDate(nextBillingDate.getDate() + 30 - daysSpentInPaidMonth);
+    
+    for (let i = 0; i < 6; i++) { // Show next 6 payments
+      if (nextBillingDate > now) {
+        schedule.push({
+          date: new Date(nextBillingDate),
+          amount: currentLease.monthlyRent,
+          label: `Monthly Rent ${i + 1}`
+        });
+      }
+      nextBillingDate.setDate(nextBillingDate.getDate() + 30);
+    }
+    
+    return schedule;
+  };
+
+  const nextPaymentSchedule = generateNextPaymentSchedule();
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -364,11 +454,21 @@ export default function RenterDashboardPage() {
           <CardContent>
             <div className="flex flex-col items-center justify-center py-8">
               <p className="text-5xl font-extrabold text-primary mb-2">${nextPayment.amount.toLocaleString()}</p>
-              <p className="text-lg text-muted-foreground mb-4">{nextPayment.label}</p>
+              <p className="text-lg text-muted-foreground mb-2">{nextPayment.label}</p>
+              
+              {/* Show Pay Now only when due today or overdue, otherwise show status */}
               {nextPayment.amount > 0 ? (
-                <Button size="lg" className="text-lg px-8 py-4" onClick={navigateToPayments}>Pay Now</Button>
+                nextPayment.daysUntilDue === 0 || nextPayment.label.includes('Overdue') ? (
+                  <Button size="lg" className="text-lg px-8 py-4" onClick={navigateToPayments}>
+                    Pay Now
+                  </Button>
+                ) : (
+                  <Badge variant="outline" className="text-lg px-6 py-2">
+                    Due in {nextPayment.daysUntilDue} days
+                  </Badge>
+                )
               ) : (
-                <Badge variant="default" className="text-lg px-6 py-2">Paid</Badge>
+                <Badge variant="default" className="text-lg px-6 py-2">All Paid</Badge>
               )}
             </div>
           </CardContent>
@@ -421,7 +521,7 @@ export default function RenterDashboardPage() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Paid This Year</CardTitle>
@@ -431,6 +531,30 @@ export default function RenterDashboardPage() {
             <div className="text-2xl font-bold text-success">${totalPaid.toLocaleString()}</div>
             <p className="text-xs text-muted-foreground">
               {recentPayments.filter((p) => p.status === "paid").length} payments made
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Days Until Next Payment</CardTitle>
+            <CreditCard className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className={`text-2xl font-bold ${
+              nextPayment.daysUntilDue === 0 ? 'text-destructive' :
+              nextPayment.daysUntilDue <= 7 ? 'text-destructive' :
+              nextPayment.daysUntilDue <= 14 ? 'text-warning' :
+              'text-primary'
+            }`}>
+              {nextPayment.amount > 0 ? nextPayment.daysUntilDue : 'N/A'}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {nextPayment.amount > 0 ? 
+                (nextPayment.daysUntilDue === 0 ? 'Due today!' :
+                 nextPayment.daysUntilDue === 1 ? 'Due tomorrow' :
+                 `Due in ${nextPayment.daysUntilDue} days`) : 
+                'No payments due'}
             </p>
           </CardContent>
         </Card>
@@ -501,6 +625,58 @@ export default function RenterDashboardPage() {
               ))}
               <Button variant="outline" className="w-full" onClick={navigateToPayments}>
                 View All Payments
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Upcoming Payment Schedule */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Upcoming Payment Schedule</CardTitle>
+            <p className="text-sm text-muted-foreground">Based on billing cycle: Last payment + 30 days - days spent</p>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {nextPaymentSchedule.length > 0 ? (
+                nextPaymentSchedule.slice(0, 4).map((payment, index) => {
+                  const daysUntil = Math.ceil((payment.date.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+                  return (
+                    <div key={index} className="flex items-center justify-between p-3 border rounded-lg">
+                      <div>
+                        <p className="font-medium">${payment.amount.toLocaleString()}</p>
+                        <p className="text-sm text-muted-foreground">
+                          Due: {payment.date.toLocaleDateString()}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {daysUntil === 0 ? 'Due today' : 
+                           daysUntil === 1 ? 'Due tomorrow' : 
+                           `Due in ${daysUntil} days`}
+                        </p>
+                      </div>
+                      <Badge
+                        variant={
+                          daysUntil === 0 ? "destructive" :
+                          daysUntil <= 7 ? "destructive" :
+                          daysUntil <= 14 ? "secondary" :
+                          "outline"
+                        }
+                      >
+                        {daysUntil === 0 ? 'Due Today' : 
+                         daysUntil <= 7 ? 'Due Soon' : 
+                         daysUntil <= 14 ? 'Due Soon' : 
+                         'Upcoming'}
+                      </Badge>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="text-center py-4 text-muted-foreground">
+                  No upcoming payments scheduled
+                </div>
+              )}
+              <Button variant="outline" className="w-full" onClick={navigateToPayments}>
+                View Payment Details
               </Button>
             </div>
           </CardContent>

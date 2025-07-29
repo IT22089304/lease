@@ -1,6 +1,6 @@
 "use client"
 
-import { Bell, LogOut, Settings, User, Home, CreditCard, FileText, Send } from "lucide-react"
+import { Bell, LogOut, Settings, User, Home, CreditCard, FileText, Send, Eye } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -13,9 +13,40 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { useAuth } from "@/lib/auth"
+import { useState, useEffect } from "react"
+import { noticeService } from "@/lib/services/notice-service"
+import { invitationService } from "@/lib/services/invitation-service"
+import type { Notice } from "@/types"
 
 export function Header() {
   const { user, logout } = useAuth()
+  const [notices, setNotices] = useState<Notice[]>([])
+  const [invitations, setInvitations] = useState<any[]>([])
+  const [unreadCount, setUnreadCount] = useState(0)
+
+  useEffect(() => {
+    if (!user || !user.email) return;
+    
+    const fetchNotifications = async () => {
+      try {
+        const [realNotices, realInvitations] = await Promise.all([
+          noticeService.getRenterNotices(user.email),
+          invitationService.getInvitationsForEmail(user.email),
+        ]);
+        setNotices(realNotices);
+        setInvitations(realInvitations);
+        
+        // Calculate unread count (notices + invitations)
+        const unreadNotices = realNotices.filter(n => !n.readAt).length;
+        const unreadInvitations = realInvitations.filter(i => i.status === 'pending').length;
+        setUnreadCount(unreadNotices + unreadInvitations);
+      } catch (error) {
+        console.error('Error fetching notifications:', error);
+      }
+    };
+
+    fetchNotifications();
+  }, [user]);
 
   if (!user) return null
 
@@ -45,6 +76,63 @@ export function Header() {
   }
 
   const navigation = getRoleSpecificNavigation()
+
+  const handleNotificationClick = (item: Notice | any) => {
+    if ('readAt' in item) {
+      // It's a notice
+      if (!item.readAt) {
+        noticeService.markAsRead(item.id);
+        setNotices(prev => prev.map(n => n.id === item.id ? { ...n, readAt: new Date() } : n));
+        setUnreadCount(prev => Math.max(0, prev - 1));
+      }
+      window.location.href = "/renter/notices";
+    } else {
+      // It's an invitation
+      window.location.href = `/renter/invitations/${item.id}`;
+    }
+  };
+
+  const handleMarkAllAsRead = async () => {
+    try {
+      // Mark all unread notices as read
+      const unreadNotices = notices.filter(n => !n.readAt);
+      await Promise.all(unreadNotices.map(notice => noticeService.markAsRead(notice.id)));
+      
+      // Update local state
+      setNotices(prev => prev.map(n => ({ ...n, readAt: n.readAt || new Date() })));
+      setUnreadCount(0);
+    } catch (error) {
+      console.error('Error marking all notifications as read:', error);
+    }
+  };
+
+  const getNoticeTypeLabel = (type: string) => {
+    const labels = {
+      eviction: "Eviction",
+      late_rent: "Late Rent",
+      rent_increase: "Rent Increase",
+      noise_complaint: "Noise Complaint",
+      cleanliness: "Cleanliness",
+      lease_violation: "Lease Violation",
+      inspection: "Inspection",
+      maintenance: "Maintenance",
+      parking_violation: "Parking Violation",
+      pet_violation: "Pet Violation",
+      utility_shutdown: "Utility Shutdown",
+      custom: "Custom",
+    };
+    return labels[type as keyof typeof labels] || "Notice";
+  };
+
+  // Combine notices and invitations for display (only unread notices)
+  const allNotifications = [
+    ...notices.filter(n => !n.readAt).map((n) => ({ ...n, _type: "notice" })),
+    ...invitations.map((i) => ({ ...i, _type: "invitation" })),
+  ].sort((a, b) => {
+    const aDate = a.sentAt || a.invitedAt || new Date(0);
+    const bDate = b.sentAt || b.invitedAt || new Date(0);
+    return new Date(bDate).getTime() - new Date(aDate).getTime();
+  }).slice(0, 5); // Show only the 5 most recent
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -78,10 +166,91 @@ export function Header() {
         </nav>
 
         <div className="flex items-center space-x-4">
-          <Button variant="ghost" size="icon" className="relative">
-            <Bell className="h-4 w-4" />
-            <Badge className="absolute -top-1 -right-1 h-5 w-5 rounded-full p-0 text-xs">3</Badge>
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="relative">
+                <Bell className="h-4 w-4" />
+                {unreadCount > 0 && (
+                  <Badge className="absolute -top-1 -right-1 h-5 w-5 rounded-full p-0 text-xs">
+                    {unreadCount > 9 ? "9+" : unreadCount}
+                  </Badge>
+                )}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent className="w-80" align="end" forceMount>
+              <DropdownMenuLabel className="font-normal">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">Notifications</span>
+                  {unreadCount > 0 && (
+                    <Badge variant="destructive" className="text-xs">
+                      {unreadCount} new
+                    </Badge>
+                  )}
+                </div>
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              
+              {allNotifications.length === 0 ? (
+                <div className="p-4 text-center text-sm text-muted-foreground">
+                  No notifications
+                </div>
+              ) : (
+                <div className="max-h-64 overflow-y-auto">
+                  {allNotifications.map((item) => (
+                    <DropdownMenuItem
+                      key={item.id}
+                      onClick={() => handleNotificationClick(item)}
+                      className="flex items-start gap-3 p-3 cursor-pointer hover:bg-muted/50"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-sm font-medium truncate">
+                            {item._type === "notice" 
+                              ? item.subject || getNoticeTypeLabel(item.type)
+                              : "Property Invitation"
+                            }
+                          </span>
+                          {item._type === "notice" && !item.readAt && (
+                            <Badge variant="destructive" className="text-xs">New</Badge>
+                          )}
+                          {item._type === "invitation" && item.status === "pending" && (
+                            <Badge variant="secondary" className="text-xs">Pending</Badge>
+                          )}
+                        </div>
+                        <p className="text-xs text-muted-foreground line-clamp-2">
+                          {item._type === "notice" 
+                            ? item.message || "You have a new notice from your landlord."
+                            : "You are invited to view a property."
+                          }
+                        </p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="text-xs text-muted-foreground">
+                            {item._type === "notice" 
+                              ? new Date(item.sentAt).toLocaleDateString()
+                              : new Date(item.invitedAt).toLocaleDateString()
+                            }
+                          </span>
+                          <Eye className="h-3 w-3 text-muted-foreground" />
+                        </div>
+                      </div>
+                    </DropdownMenuItem>
+                  ))}
+                </div>
+              )}
+              
+              <DropdownMenuSeparator />
+              {unreadCount > 0 && (
+                <DropdownMenuItem onClick={handleMarkAllAsRead}>
+                  <Eye className="mr-2 h-4 w-4" />
+                  <span>Mark All as Read</span>
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem onClick={() => (window.location.href = "/renter/notices")}>
+                <FileText className="mr-2 h-4 w-4" />
+                <span>View All Notices</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

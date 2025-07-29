@@ -10,6 +10,9 @@ import { useAuth } from "@/lib/auth"
 import { useLandlordDashboard } from "@/hooks/use-landlord-dashboard"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
+import { leaseService } from "@/lib/services/lease-service"
+import { doc, getDoc, query, collection, where, getDocs } from "firebase/firestore"
+import { db } from "@/lib/firebase"
 
 export default function DashboardPage() {
   const router = useRouter()
@@ -18,6 +21,8 @@ export default function DashboardPage() {
   const [searchTerm, setSearchTerm] = useState("")
   const [debugInfo, setDebugInfo] = useState("")
   const [activeTab, setActiveTab] = useState("overview")
+  const [leases, setLeases] = useState<any[]>([])
+  const [renterInfo, setRenterInfo] = useState<{[key: string]: any}>({})
 
   // Debug: log user and dashboard data
   useEffect(() => {
@@ -27,6 +32,113 @@ export default function DashboardPage() {
     console.log("[Dashboard] error:", error)
     setDebugInfo(JSON.stringify({ user, properties, stats, error }, null, 2))
   }, [user, properties, stats, error])
+
+  // Fetch leases and renter information
+  useEffect(() => {
+    async function fetchLeasesAndRenters() {
+      if (!user?.id) return
+      
+      try {
+        // Fetch all leases for this landlord
+        const allLeases = await leaseService.getLandlordLeases(user.id)
+        console.log(`[Dashboard] Fetched ${allLeases.length} leases:`, allLeases)
+        setLeases(allLeases)
+        
+        // Fetch renter information for each active lease
+        const renterData: {[key: string]: any} = {}
+        
+        for (const lease of allLeases) {
+          if (lease.renterId && lease.status === "active") {
+            console.log(`[Dashboard] Processing lease for property ${lease.propertyId}, renterId: ${lease.renterId}`)
+            
+            try {
+              // First, try to find user by email (since renterId might be email)
+              const usersQuery = query(collection(db, "users"), where("email", "==", lease.renterId))
+              const usersSnapshot = await getDocs(usersQuery)
+              
+              console.log(`[Dashboard] Email search for ${lease.renterId} found ${usersSnapshot.size} users`)
+              
+              if (!usersSnapshot.empty) {
+                const userDoc = usersSnapshot.docs[0]
+                const userData = userDoc.data()
+                console.log(`[Dashboard] Found user by email:`, userData)
+                
+                // Try to get renter profile using the user ID
+                const renterProfileRef = doc(db, "renterProfiles", userDoc.id)
+                const renterProfileSnap = await getDoc(renterProfileRef)
+                
+                if (renterProfileSnap.exists()) {
+                  const profileData = renterProfileSnap.data()
+                  console.log(`[Dashboard] Found renter profile:`, profileData)
+                  renterData[lease.propertyId] = {
+                    name: profileData.fullName || userData.name || "Unknown Renter",
+                    email: profileData.email || userData.email || lease.renterId
+                  }
+                } else {
+                  console.log(`[Dashboard] No renter profile found, using user data`)
+                  // Use user document data
+                  renterData[lease.propertyId] = {
+                    name: userData.name || "Unknown Renter",
+                    email: userData.email || lease.renterId
+                  }
+                }
+              } else {
+                console.log(`[Dashboard] No user found by email, trying direct user ID lookup`)
+                // Fallback: try direct lookup by renterId as user ID
+                const userRef = doc(db, "users", lease.renterId)
+                const userSnap = await getDoc(userRef)
+                
+                if (userSnap.exists()) {
+                  const userData = userSnap.data()
+                  console.log(`[Dashboard] Found user by ID:`, userData)
+                  
+                  // Try to get renter profile
+                  const renterProfileRef = doc(db, "renterProfiles", lease.renterId)
+                  const renterProfileSnap = await getDoc(renterProfileRef)
+                  
+                  if (renterProfileSnap.exists()) {
+                    const profileData = renterProfileSnap.data()
+                    console.log(`[Dashboard] Found renter profile by ID:`, profileData)
+                    renterData[lease.propertyId] = {
+                      name: profileData.fullName || userData.name || "Unknown Renter",
+                      email: profileData.email || userData.email || lease.renterId
+                    }
+                  } else {
+                    console.log(`[Dashboard] No renter profile found by ID, using user data`)
+                    renterData[lease.propertyId] = {
+                      name: userData.name || "Unknown Renter",
+                      email: userData.email || lease.renterId
+                    }
+                  }
+                } else {
+                  console.log(`[Dashboard] No user found by ID, using fallback`)
+                  // Last resort: use renterId as display name
+                  renterData[lease.propertyId] = {
+                    name: "Unknown Renter",
+                    email: lease.renterId
+                  }
+                }
+              }
+              
+              console.log(`[Dashboard] Final renter data for property ${lease.propertyId}:`, renterData[lease.propertyId])
+            } catch (error) {
+              console.error(`Error fetching renter info for property ${lease.propertyId}:`, error)
+              renterData[lease.propertyId] = {
+                name: "Unknown Renter",
+                email: lease.renterId
+              }
+            }
+          }
+        }
+        
+        setRenterInfo(renterData)
+      } catch (error) {
+        console.error("Error fetching leases and renter info:", error)
+      }
+    }
+    
+    fetchLeasesAndRenters()
+  }, [user?.id])
 
   const filteredProperties = properties.filter(
     (property) =>
@@ -97,20 +209,7 @@ export default function DashboardPage() {
             Welcome back, {user.name}. Here's an overview of your properties.
           </p>
         </div>
-        <div className="flex gap-3">
-          <Button
-            variant="outline"
-            onClick={() => router.push("/invitations")}
-            className="flex items-center gap-2"
-          >
-            <Send className="h-4 w-4" />
-            Send Invitation
-          </Button>
-          <Button onClick={handleAddProperty} size="lg" className="flex items-center gap-2">
-            <Plus className="h-5 w-5" />
-            Add Property
-          </Button>
-        </div>
+
       </div>
 
       <StatsOverview stats={stats} />
@@ -165,16 +264,29 @@ export default function DashboardPage() {
         </div>
 
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-          {filteredProperties.map((property) => (
-            <PropertyCard
-              key={property.id}
-              property={property}
-              onViewProperty={handleViewProperty}
-              onCreateLease={handleCreateLease}
-              onSendNotice={handleSendNotice}
-              onSendInvitation={handleSendInvitation}
-            />
-          ))}
+          {filteredProperties.map((property) => {
+            const isLeased = leases.some(l => l.propertyId === property.id && l.renterId && l.status === "active")
+            const propertyRenterInfo = renterInfo[property.id]
+            
+            console.log(`[Dashboard] Rendering property ${property.id}:`, { 
+              isLeased, 
+              propertyRenterInfo,
+              allRenterInfo: renterInfo 
+            })
+            
+            return (
+              <PropertyCard
+                key={property.id}
+                property={property}
+                onViewProperty={handleViewProperty}
+                onCreateLease={handleCreateLease}
+                onSendNotice={handleSendNotice}
+                onSendInvitation={handleSendInvitation}
+                leased={isLeased}
+                renterInfo={propertyRenterInfo}
+              />
+            )
+          })}
         </div>
 
         {filteredProperties.length === 0 && (

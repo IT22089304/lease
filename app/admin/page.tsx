@@ -1,11 +1,17 @@
 "use client"
 import { Settings, FileText, Users, BarChart3 } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { RegionalTemplates } from "@/components/admin/regional-templates"
-import { FieldBuilder } from "@/components/admin/field-builder"
+// import { RegionalTemplates } from "@/components/admin/regional-templates"
+// import { FieldBuilder } from "@/components/admin/field-builder"
 import { AuditLogs } from "@/components/admin/audit-logs"
-import { SystemStats } from "@/components/admin/system-stats"
+// import { SystemStats } from "@/components/admin/system-stats"
 import { useAuth } from "@/lib/auth"
+import { TemplateUploader } from "@/components/admin/template-uploader"
+
+// Placeholder imports for new components
+// (implement these next)
+// import { TemplateUploader } from "@/components/admin/template-uploader"
+// import { RealStats } from "@/components/admin/real-stats"
 
 export default function AdminPage() {
   const { user } = useAuth()
@@ -29,14 +35,10 @@ export default function AdminPage() {
       </div>
 
       <Tabs defaultValue="templates" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="templates" className="flex items-center gap-2">
             <FileText className="h-4 w-4" />
             Templates
-          </TabsTrigger>
-          <TabsTrigger value="fields" className="flex items-center gap-2">
-            <Settings className="h-4 w-4" />
-            Field Builder
           </TabsTrigger>
           <TabsTrigger value="stats" className="flex items-center gap-2">
             <BarChart3 className="h-4 w-4" />
@@ -49,15 +51,12 @@ export default function AdminPage() {
         </TabsList>
 
         <TabsContent value="templates">
-          <RegionalTemplates />
-        </TabsContent>
-
-        <TabsContent value="fields">
-          <FieldBuilder />
+          <TemplateUploader />
         </TabsContent>
 
         <TabsContent value="stats">
-          <SystemStats />
+          {/* <RealStats /> */}
+          <div>Real statistics go here.</div>
         </TabsContent>
 
         <TabsContent value="logs">

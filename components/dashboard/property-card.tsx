@@ -3,7 +3,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { MapPin, Bed, Bath, Square, Eye, Send, FileText } from "lucide-react"
+import { MapPin, Bed, Bath, Square, Eye, Send, FileText, User } from "lucide-react"
 import type { Property } from "@/types"
 
 interface PropertyCardProps {
@@ -13,6 +13,10 @@ interface PropertyCardProps {
   onSendNotice: (id: string) => void
   onSendInvitation: (id: string) => void
   leased?: boolean
+  renterInfo?: {
+    name: string
+    email: string
+  }
 }
 
 export function PropertyCard({ 
@@ -21,8 +25,11 @@ export function PropertyCard({
   onCreateLease,
   onSendNotice,
   onSendInvitation,
-  leased
+  leased,
+  renterInfo
 }: PropertyCardProps) {
+  console.log(`[PropertyCard] Property ${property.id}:`, { leased, renterInfo })
+  
   const formatAddress = (address: Property["address"]) => {
     return `${address.street}${address.unit ? `, Unit ${address.unit}` : ""}, ${address.city}`
   }
@@ -57,6 +64,16 @@ export function PropertyCard({
             {property.squareFeet} sq ft
           </div>
         </div>
+
+        {leased && renterInfo && (
+          <div className="flex items-center text-sm text-muted-foreground bg-muted/50 p-2 rounded">
+            <User className="h-4 w-4 mr-2" />
+            <div>
+              <p className="font-medium text-foreground">{renterInfo.name}</p>
+              <p className="text-xs">{renterInfo.email}</p>
+            </div>
+          </div>
+        )}
 
         <div className="grid grid-cols-2 gap-2">
           <Button variant="outline" onClick={() => onViewProperty(property.id)}>
