@@ -16,6 +16,7 @@ export default function LeaseWizardPage() {
   const [property, setProperty] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [selectedTemplate, setSelectedTemplate] = useState<TemplateMeta | null>(null)
+  const [receiverEmail, setReceiverEmail] = useState("")
 
   useEffect(() => {
     async function fetchProperty() {
@@ -76,24 +77,26 @@ export default function LeaseWizardPage() {
   }
 
   if (loading) {
-    return <div className="container mx-auto p-4">Loading...</div>
+    return <div className="container mx-auto p-6">Loading...</div>
   }
 
   if (!property) {
-    return <div className="container mx-auto p-4 text-destructive">Property not found.</div>
+    return <div className="container mx-auto p-6 text-destructive">Property not found.</div>
   }
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="container mx-auto p-4">
-        <h1 className="text-3xl font-bold mb-4 text-primary">Select PDF Template for {property.address.street}</h1>
+      <div className="container mx-auto p-6">
+        <h1 className="text-3xl font-bold mb-8 text-primary">Select PDF Template for {property.address.street}</h1>
         
-        <div className="space-y-4">
+        <div className="space-y-8">
           <PDFTemplateSelector 
             onTemplateSelect={handleTemplateSelect}
             selectedTemplate={selectedTemplate}
             propertyId={propertyId || undefined}
-            landlordId={property.landlordId}
+            landlordId={property?.landlordId}
+            receiverEmail={receiverEmail}
+            onReceiverEmailChange={setReceiverEmail}
           />
           
           <div className="flex justify-center">
