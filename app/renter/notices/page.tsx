@@ -1,12 +1,13 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Eye, Calendar, AlertTriangle, CheckCircle } from "lucide-react"
+import { Eye, Calendar, AlertTriangle, CheckCircle, FileText, Home, Bed, Bath, Square } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { NoticeViewer } from "@/components/renter/notice-viewer"
+import { PDFViewer } from "@/components/ui/pdf-viewer"
 import { useAuth } from "@/lib/auth"
 import type { Notice } from "@/types"
 import { invitationService } from "@/lib/services/invitation-service"
@@ -27,6 +28,10 @@ export default function RenterNoticesPage() {
   const [leases, setLeases] = useState<Lease[]>([]);
   const [propertyAddress, setPropertyAddress] = useState<string>("");
   const [landlordName, setLandlordName] = useState<string>("");
+  const [isPdfViewerOpen, setIsPdfViewerOpen] = useState(false);
+  const [selectedPdfUrl, setSelectedPdfUrl] = useState("");
+  const [selectedPdfTitle, setSelectedPdfTitle] = useState("");
+  const [propertyDetails, setPropertyDetails] = useState<any>(null);
 
   useEffect(() => {
     if (!user || !user.email || !user.id) return;
@@ -88,6 +93,7 @@ export default function RenterNoticesPage() {
       pet_violation: "Pet Policy Violation",
       utility_shutdown: "Utility Shutdown",
       custom: "Notice",
+      lease_received: "Lease Agreement Received",
     }
     return labels[type] || type
   }
@@ -106,6 +112,7 @@ export default function RenterNoticesPage() {
       pet_violation: "secondary",
       utility_shutdown: "destructive",
       custom: "outline",
+      lease_received: "default",
     }
     return variants[type] || "outline"
   }
@@ -141,6 +148,52 @@ export default function RenterNoticesPage() {
   const getLeaseAcceptanceStatus = (notice: Notice) => {
     const lease = leases.find(l => l.propertyId === notice.propertyId);
     return lease && lease.signatureStatus.renterSigned;
+  };
+
+  const handleViewLease = async (notice: Notice) => {
+    if (notice.type === "lease_received" && notice.leaseAgreementId) {
+      try {
+        // Fetch the lease agreement document to get the PDF URL
+        const leaseRef = doc(db, "filledLeases", notice.leaseAgreementId);
+        const leaseSnap = await getDoc(leaseRef);
+        
+        if (leaseSnap.exists()) {
+          const leaseData = leaseSnap.data();
+          const pdfUrl = leaseData.filledPdfUrl || leaseData.originalTemplateUrl;
+          
+          if (pdfUrl) {
+            setSelectedPdfUrl(pdfUrl);
+            setSelectedPdfTitle(leaseData.templateName || "Lease Agreement");
+            setIsPdfViewerOpen(true);
+            
+            // Mark notice as read
+            if (!notice.readAt) {
+              await markNoticeAsRead(notice.id);
+            }
+          } else {
+            console.error("No PDF URL found in lease agreement");
+          }
+        } else {
+          console.error("Lease agreement not found");
+        }
+      } catch (error) {
+        console.error("Error opening lease PDF:", error);
+      }
+    }
+  };
+
+  const handleViewProperty = async (notice: Notice) => {
+    if (notice.propertyId) {
+      try {
+        const propRef = doc(db, "properties", notice.propertyId);
+        const propSnap = await getDoc(propRef);
+        if (propSnap.exists()) {
+          setPropertyDetails(propSnap.data());
+        }
+      } catch (error) {
+        console.error("Error fetching property details:", error);
+      }
+    }
   };
 
   // Combine notices and invitations for display
@@ -271,19 +324,39 @@ export default function RenterNoticesPage() {
                     </div>
                   </div>
                   {item._type === "notice" ? (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setSelectedNotice(item)
-                        if (!item.readAt) {
-                          markNoticeAsRead(item.id)
-                        }
-                      }}
-                    >
-                      <Eye className="h-4 w-4 mr-2" />
-                      View
-                    </Button>
+                    <div className="flex gap-2">
+                      {item.type === "lease_received" && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleViewLease(item)}
+                        >
+                          <FileText className="h-4 w-4 mr-2" />
+                          View Lease
+                        </Button>
+                      )}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleViewProperty(item)}
+                      >
+                        <Home className="h-4 w-4 mr-2" />
+                        View Property
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setSelectedNotice(item)
+                          if (!item.readAt) {
+                            markNoticeAsRead(item.id)
+                          }
+                        }}
+                      >
+                        <Eye className="h-4 w-4 mr-2" />
+                        View Details
+                      </Button>
+                    </div>
                   ) : (
                     <Button
                       variant="outline"
@@ -327,6 +400,260 @@ export default function RenterNoticesPage() {
           isOpen={!!selectedNotice}
           onClose={() => setSelectedNotice(null)}
         />
+      )}
+
+      {/* PDF Viewer Dialog */}
+      <PDFViewer
+        isOpen={isPdfViewerOpen}
+        onClose={() => setIsPdfViewerOpen(false)}
+        pdfUrl={selectedPdfUrl}
+        title={selectedPdfTitle}
+        isFilling={true}
+        receiverEmail={user?.email || ""}
+        onReceiverEmailChange={() => {}}
+        propertyId=""
+        landlordId=""
+      />
+
+      {/* Property Details Dialog */}
+      {propertyDetails && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 overflow-y-auto">
+          <div className="bg-white rounded-lg p-6 max-w-4xl w-full mx-4 my-8 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h1 className="text-2xl font-bold">
+                  {propertyDetails.address?.street}
+                  {propertyDetails.address?.unit && `, Unit ${propertyDetails.address.unit}`}
+                  <br />
+                  {propertyDetails.address?.city}, {propertyDetails.address?.state} {propertyDetails.address?.postalCode}
+                </h1>
+                <div className="flex items-center gap-2 mt-2">
+                  <Badge className="capitalize">{propertyDetails.type}</Badge>
+                  <Badge variant={propertyDetails.status === "available" ? "default" : "secondary"}>
+                    {propertyDetails.status === "available"
+                      ? "Available"
+                      : propertyDetails.status === "occupied"
+                        ? "Occupied"
+                        : "Maintenance"}
+                  </Badge>
+                </div>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPropertyDetails(null)}
+              >
+                ×
+              </Button>
+            </div>
+
+            <div className="space-y-6">
+              {/* Property Images */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Property Images</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {propertyDetails.images?.map((image: string, index: number) => (
+                      <div key={index} className="aspect-video relative rounded-lg overflow-hidden bg-muted">
+                        <img
+                          src={image || "/placeholder.svg"}
+                          alt={`Property ${index + 1}`}
+                          className="object-cover w-full h-full"
+                        />
+                      </div>
+                    ))}
+                    {(!propertyDetails.images || propertyDetails.images.length === 0) && (
+                      <div className="aspect-video bg-muted rounded-md flex items-center justify-center">
+                        <p className="text-muted-foreground">No images available</p>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Property Details */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Property Details</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="flex items-center gap-2">
+                      <Home className="h-5 w-5 text-muted-foreground" />
+                      <div>
+                        <p className="text-sm text-muted-foreground">Type</p>
+                        <p className="font-medium capitalize">{propertyDetails.type}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Bed className="h-5 w-5 text-muted-foreground" />
+                      <div>
+                        <p className="text-sm text-muted-foreground">Bedrooms</p>
+                        <p className="font-medium">{propertyDetails.bedrooms}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Bath className="h-5 w-5 text-muted-foreground" />
+                      <div>
+                        <p className="text-sm text-muted-foreground">Bathrooms</p>
+                        <p className="font-medium">{propertyDetails.bathrooms}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Square className="h-5 w-5 text-muted-foreground" />
+                      <div>
+                        <p className="text-sm text-muted-foreground">Square Feet</p>
+                        <p className="font-medium">{propertyDetails.squareFeet || "N/A"}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {propertyDetails.description && (
+                    <div className="mt-4">
+                      <h4 className="font-medium mb-2">Description</h4>
+                      <p className="text-sm text-muted-foreground">{propertyDetails.description}</p>
+                    </div>
+                  )}
+
+                  {propertyDetails.amenities && propertyDetails.amenities.length > 0 && (
+                    <div className="mt-4">
+                      <h4 className="font-medium mb-2">Amenities</h4>
+                      <div className="flex flex-wrap gap-2">
+                        {propertyDetails.amenities.map((amenity: string, index: number) => (
+                          <Badge key={index} variant="outline">{amenity}</Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Rent & Fees */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Rent & Fees</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <h4 className="font-medium mb-2">Monthly Rent</h4>
+                      <p className="text-2xl font-bold text-primary">
+                        ${propertyDetails.monthlyRent?.toLocaleString() || "N/A"}
+                      </p>
+                    </div>
+                    <div>
+                      <h4 className="font-medium mb-2">Security Deposit</h4>
+                      <p className="text-lg font-semibold">
+                        ${propertyDetails.securityDeposit?.toLocaleString() || "N/A"}
+                      </p>
+                    </div>
+                  </div>
+
+                  {(propertyDetails.applicationFee || propertyDetails.petDeposit || propertyDetails.utilitiesIncluded) && (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+                      {propertyDetails.applicationFee && (
+                        <div>
+                          <h4 className="font-medium mb-1">Application Fee</h4>
+                          <p className="text-sm text-muted-foreground">
+                            ${propertyDetails.applicationFee.toLocaleString()}
+                          </p>
+                        </div>
+                      )}
+                      {propertyDetails.petDeposit && (
+                        <div>
+                          <h4 className="font-medium mb-1">Pet Deposit</h4>
+                          <p className="text-sm text-muted-foreground">
+                            ${propertyDetails.petDeposit.toLocaleString()}
+                          </p>
+                        </div>
+                      )}
+                      {propertyDetails.utilitiesIncluded && (
+                        <div>
+                          <h4 className="font-medium mb-1">Utilities</h4>
+                          <p className="text-sm text-muted-foreground">
+                            {propertyDetails.utilitiesIncluded}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {propertyDetails.additionalFees && propertyDetails.additionalFees.length > 0 && (
+                    <div className="mt-4">
+                      <h4 className="font-medium mb-2">Additional Fees</h4>
+                      <div className="space-y-2">
+                        {propertyDetails.additionalFees.map((fee: any, index: number) => (
+                          <div key={index} className="flex justify-between items-center">
+                            <span className="text-sm">{fee.name}</span>
+                            <span className="text-sm font-medium">${fee.amount.toLocaleString()}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Lease Terms */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Lease Terms</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <h4 className="font-medium mb-1">Lease Duration</h4>
+                      <p className="text-sm text-muted-foreground">
+                        {propertyDetails.leaseTerm || "12 months"}
+                      </p>
+                    </div>
+                    <div>
+                      <h4 className="font-medium mb-1">Move-in Date</h4>
+                      <p className="text-sm text-muted-foreground">
+                        {propertyDetails.availableDate ? new Date(propertyDetails.availableDate).toLocaleDateString() : "Flexible"}
+                      </p>
+                    </div>
+                  </div>
+
+                  {propertyDetails.petPolicy && (
+                    <div>
+                      <h4 className="font-medium mb-1">Pet Policy</h4>
+                      <div className="text-sm text-muted-foreground space-y-1">
+                        {typeof propertyDetails.petPolicy === 'string' ? (
+                          <p>{propertyDetails.petPolicy}</p>
+                        ) : (
+                          <div>
+                            {propertyDetails.petPolicy.allowed && (
+                              <p><strong>Allowed:</strong> {propertyDetails.petPolicy.allowed ? 'Yes' : 'No'}</p>
+                            )}
+                            {propertyDetails.petPolicy.maxPets && (
+                              <p><strong>Max Pets:</strong> {propertyDetails.petPolicy.maxPets}</p>
+                            )}
+                            {propertyDetails.petPolicy.fee && (
+                              <p><strong>Pet Fee:</strong> ${propertyDetails.petPolicy.fee.toLocaleString()}</p>
+                            )}
+                            {propertyDetails.petPolicy.restrictions && (
+                              <p><strong>Restrictions:</strong> {propertyDetails.petPolicy.restrictions}</p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {propertyDetails.parking && (
+                    <div>
+                      <h4 className="font-medium mb-1">Parking</h4>
+                      <p className="text-sm text-muted-foreground">{propertyDetails.parking}</p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

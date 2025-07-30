@@ -510,6 +510,8 @@ export function PDFTemplateSelector({
         onSubmit={handleSubmitFilledPDF}
         isSaving={isSaving}
         onComplete={handleCompleteFilledPDF}
+        propertyId={propertyId}
+        landlordId={landlordId}
       />
 
       {isCompleted && (

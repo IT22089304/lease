@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label"
 import { useAuth } from "@/lib/auth"
 import { invitationService } from "@/lib/services/invitation-service"
 import { propertyService } from "@/lib/services/property-service"
-import { Plus, X, Copy, Link, ExternalLink } from "lucide-react"
+import { Plus, X, Copy, Link, ExternalLink, CheckCircle, RefreshCw } from "lucide-react"
 import { storage, db } from "@/lib/firebase"
 import { applicationService } from "@/lib/services/application-service"
 import { ref as storageRef, uploadString, uploadBytes, getDownloadURL } from "firebase/storage"
@@ -36,6 +36,9 @@ export default function NewApplicationPage() {
   const signaturePadRefs = useRef<(HTMLCanvasElement | null)[]>([]);
   const [signatureLinks, setSignatureLinks] = useState<string[]>([]); // Store signing links for sharing
   const [signatureStatuses, setSignatureStatuses] = useState<{ [key: number]: 'pending' | 'completed' }>({}); // Track signature status
+  const [saving, setSaving] = useState(false); // Track save status
+  const [lastSaved, setLastSaved] = useState<Date | null>(null); // Track last save time
+  const [checkingSignatures, setCheckingSignatures] = useState(false); // Track signature check status
 
   // Handlers for dynamic sections
   const handleApplicantChange = (i: number, field: string, value: string) => {
@@ -121,6 +124,91 @@ export default function NewApplicationPage() {
     }
   };
 
+  const checkSignatureStatus = async (index?: number) => {
+    if (!invitationId) return;
+    
+    setCheckingSignatures(true);
+    
+    try {
+      // Check if application exists and get signature statuses
+      const applicationDoc = await getDoc(doc(db, "applications", invitationId));
+      if (applicationDoc.exists()) {
+        const data = applicationDoc.data();
+        
+        // Update signature statuses
+        if (data.signatureStatuses) {
+          setSignatureStatuses(data.signatureStatuses);
+        }
+        
+        // Check for saved signatures and display them
+        let signaturesFound = false;
+        
+        // Check for signatures as object (signatures[0])
+        if (data.signatures && typeof data.signatures === 'object') {
+          Object.keys(data.signatures).forEach((idx) => {
+            const signatureIndex = parseInt(idx);
+            const signatureData = data.signatures[signatureIndex];
+            
+            if (signatureData) {
+              signaturesFound = true;
+              setSignatureStatuses(prev => ({
+                ...prev,
+                [signatureIndex]: 'completed'
+              }));
+              setSavedSignatures(prev => ({
+                ...prev,
+                [signatureIndex]: signatureData
+              }));
+            }
+          });
+        }
+        
+        // Check for signatures as dot notation fields (signatures.0)
+        if (!signaturesFound) {
+          const allFields = Object.keys(data);
+          const signatureFields = allFields.filter(field => field.startsWith('signatures.'));
+          
+          signatureFields.forEach((field) => {
+            const signatureIndex = field.split('.')[1];
+            const signatureData = data[field];
+            
+            if (signatureData) {
+              signaturesFound = true;
+              const signatureIndexNum = parseInt(signatureIndex);
+              setSignatureStatuses(prev => ({
+                ...prev,
+                [signatureIndexNum]: 'completed'
+              }));
+              setSavedSignatures(prev => ({
+                ...prev,
+                [signatureIndexNum]: signatureData
+              }));
+            }
+          });
+        }
+        
+        // If checking specific signature, show feedback
+        if (index !== undefined) {
+          const isCompleted = data.signatureStatuses?.[index] === 'completed';
+          const hasSignature = data.signatures?.[index];
+          
+          if (isCompleted && hasSignature) {
+            alert(`Signature ${index + 1} has been completed!`);
+          } else if (hasSignature) {
+            alert(`Signature ${index + 1} has been signed but status not updated.`);
+          } else {
+            alert(`Signature ${index + 1} is still pending.`);
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Error checking signature status:", error);
+      alert("Failed to check signature status. Please try again.");
+    } finally {
+      setCheckingSignatures(false);
+    }
+  };
+
   // Generate signing link for external users
   const generateSigningLink = async (index: number) => {
     if (!invitationId) return;
@@ -158,6 +246,51 @@ export default function NewApplicationPage() {
         const prop = await propertyService.getProperty((inv as any).propertyId)
         setProperty(prop)
       }
+      
+      // Try to load saved application data
+      try {
+        const applicationDoc = await getDoc(doc(db, "applications", invitationId))
+        if (applicationDoc.exists()) {
+          const savedData = applicationDoc.data()
+          if (savedData.status === "incomplete") {
+            // Load saved form data
+            setForm({
+              fullName: savedData.fullName || user?.name || "",
+              email: savedData.email || user?.email || "",
+              phone: savedData.phone || (user as any)?.phone || "",
+              employmentCompany: savedData.employmentCompany || "",
+              employmentJobTitle: savedData.employmentJobTitle || "",
+              employmentMonthlyIncome: savedData.employmentMonthlyIncome || "",
+              currentAddress: savedData.currentAddress?.street || "",
+              currentCity: savedData.currentAddress?.city || "",
+              currentProvince: savedData.currentAddress?.province || "",
+              currentPostalCode: savedData.currentAddress?.postalCode || "",
+              ...savedData.residences?.reduce((acc: any, residence: any, index: number) => ({
+                ...acc,
+                [`residence${index}_address`]: residence.address || "",
+                [`residence${index}_from`]: residence.from || "",
+                [`residence${index}_to`]: residence.to || "",
+                [`residence${index}_landlord`]: residence.landlord || "",
+                [`residence${index}_phone`]: residence.phone || "",
+              }), {})
+            })
+            
+            // Load saved sections
+            if (savedData.applicants) setApplicants(savedData.applicants)
+            if (savedData.occupants) setOccupants(savedData.occupants)
+            if (savedData.employments) setEmployments(savedData.employments)
+            if (savedData.references) setReferences(savedData.references)
+            if (savedData.autos) setAutos(savedData.autos)
+            if (savedData.residences) setVisibleResidences(savedData.residences.map((_: any, index: number) => index))
+            if (savedData.signatureLinks) setSignatureLinks(savedData.signatureLinks)
+            if (savedData.signatureStatuses) setSignatureStatuses(savedData.signatureStatuses)
+            if (savedData.lastSaved) setLastSaved(savedData.lastSaved.toDate())
+          }
+        }
+      } catch (error) {
+        console.error("Error loading saved data:", error)
+      }
+      
       // Fetch profile (mock: use user info)
       setProfile({
         fullName: user?.name || "",
@@ -169,14 +302,56 @@ export default function NewApplicationPage() {
           monthlyIncome: "",
         },
       })
-      setForm({
-        fullName: user?.name || "",
-        email: user?.email || "",
-        phone: (user as any)?.phone || "",
-        employmentCompany: "",
-        employmentJobTitle: "",
-        employmentMonthlyIncome: "",
-      })
+      
+      // Set default form if no saved data
+      if (!form.fullName) {
+        setForm({
+          fullName: user?.name || "",
+          email: user?.email || "",
+          phone: (user as any)?.phone || "",
+          employmentCompany: "",
+          employmentJobTitle: "",
+          employmentMonthlyIncome: "",
+        })
+      }
+      
+      // Load existing signatures if application exists
+      if (invitationId) {
+        try {
+          const applicationDoc = await getDoc(doc(db, "applications", invitationId));
+          if (applicationDoc.exists()) {
+            const data = applicationDoc.data();
+            console.log("Loading existing application data:", data);
+            
+            if (data.signatures) {
+              console.log("Found existing signatures:", Object.keys(data.signatures));
+              Object.keys(data.signatures).forEach((idx) => {
+                const signatureIndex = parseInt(idx);
+                const signatureData = data.signatures[signatureIndex];
+                if (signatureData) {
+                  console.log(`Loading signature ${signatureIndex}`);
+                  setSavedSignatures(prev => ({
+                    ...prev,
+                    [signatureIndex]: signatureData
+                  }));
+                  setSignatureStatuses(prev => ({
+                    ...prev,
+                    [signatureIndex]: 'completed'
+                  }));
+                }
+              });
+            }
+            
+            if (data.signatureStatuses) {
+              console.log("Loading existing signature statuses:", data.signatureStatuses);
+              setSignatureStatuses(data.signatureStatuses);
+            }
+          }
+        } catch (error) {
+          console.error("Error loading existing signatures:", error);
+        }
+      }
+      
       setLoading(false)
     }
     fetchData()
@@ -240,36 +415,108 @@ export default function NewApplicationPage() {
     });
   }, [applicants]);
 
-  // Listen for signature status updates
+    // State to store actual signature images
+  const [savedSignatures, setSavedSignatures] = useState<{ [key: number]: string }>({});
+
+  // Load signatures on component mount
   useEffect(() => {
     if (!invitationId) return;
-
-    const checkSignatureStatus = async () => {
+    
+    const loadExistingSignatures = async () => {
       try {
-        // Check if application exists and get signature statuses
         const applicationDoc = await getDoc(doc(db, "applications", invitationId));
         if (applicationDoc.exists()) {
           const data = applicationDoc.data();
+          
+          if (data.signatures) {
+            Object.keys(data.signatures).forEach((idx) => {
+              const signatureIndex = parseInt(idx);
+              const signatureData = data.signatures[signatureIndex];
+              if (signatureData) {
+                setSavedSignatures(prev => ({
+                  ...prev,
+                  [signatureIndex]: signatureData
+                }));
+                setSignatureStatuses(prev => ({
+                  ...prev,
+                  [signatureIndex]: 'completed'
+                }));
+              }
+            });
+          }
+          
           if (data.signatureStatuses) {
             setSignatureStatuses(data.signatureStatuses);
           }
         }
       } catch (error) {
-        console.error("Error checking signature status:", error);
+        console.error("Error loading signatures on mount:", error);
       }
     };
-
-    // Check immediately
-    checkSignatureStatus();
-
-    // Set up interval to check for updates
-    const interval = setInterval(checkSignatureStatus, 5000); // Check every 5 seconds
-
-    return () => clearInterval(interval);
+    
+    loadExistingSignatures();
   }, [invitationId]);
+
+
 
   const handleChange = (e: any) => {
     setForm({ ...form, [e.target.name]: e.target.value });
+  };
+
+  const handleSaveChanges = async () => {
+    setSaving(true);
+    try {
+      // Create application data with incomplete status
+      const applicationData = {
+        invitationId: invitationId || "",
+        propertyId: property?.id || "",
+        landlordId: invitation?.landlordId || "",
+        renterEmail: user?.email || "",
+        fullName: form.fullName || user?.name || "",
+        phone: form.phone || (user as any)?.phone || "",
+        employmentCompany: form.employmentCompany || "",
+        employmentJobTitle: form.employmentJobTitle || "",
+        employmentMonthlyIncome: form.employmentMonthlyIncome || "",
+        // Form sections data
+        applicants: applicants,
+        occupants: occupants,
+        employments: employments,
+        references: references,
+        autos: autos,
+        residences: visibleResidences.map(i => ({
+          address: form[`residence${i}_address`] || "",
+          from: form[`residence${i}_from`] || "",
+          to: form[`residence${i}_to`] || "",
+          landlord: form[`residence${i}_landlord`] || "",
+          phone: form[`residence${i}_phone`] || "",
+        })),
+        currentAddress: {
+          street: form.currentAddress || "",
+          city: form.currentCity || "",
+          province: form.currentProvince || "",
+          postalCode: form.currentPostalCode || "",
+        },
+        // Signature data
+        signatureLinks: signatureLinks,
+        signatureStatuses: signatureStatuses,
+        // Status
+        status: "incomplete",
+        lastSaved: new Date(),
+        submittedAt: null, // Not submitted yet
+      };
+
+      // Save to Firestore with invitationId as document ID
+      if (invitationId) {
+        await applicationService.saveIncompleteApplication(invitationId, applicationData);
+        setLastSaved(new Date());
+        alert("Changes saved successfully! You can continue filling the form and submit when all signatures are complete.");
+      }
+    } catch (error) {
+      console.error("Error saving changes:", error);
+      alert("Failed to save changes. Please try again.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleSubmit = async (e: any) => {
@@ -300,21 +547,57 @@ export default function NewApplicationPage() {
                 // Use external signature if available
                 signatures.push(data.signatures[i]);
               } else {
-                // Use local signature
+                // Use local signature if drawn
                 const dataUrl = canvas.toDataURL("image/png");
-                signatures.push(dataUrl);
+                // Check if canvas has any drawing (not just blank)
+                const ctx = canvas.getContext("2d");
+                const imageData = ctx?.getImageData(0, 0, canvas.width, canvas.height);
+                const hasDrawing = imageData && imageData.data.some(pixel => pixel !== 0);
+                
+                if (hasDrawing) {
+                  signatures.push(dataUrl);
+                } else {
+                  // No signature drawn for this applicant
+                  signatures.push(null);
+                }
               }
             } else {
-              // Use local signature
+              // Use local signature if drawn
               const dataUrl = canvas.toDataURL("image/png");
-              signatures.push(dataUrl);
+              const ctx = canvas.getContext("2d");
+              const imageData = ctx?.getImageData(0, 0, canvas.width, canvas.height);
+              const hasDrawing = imageData && imageData.data.some(pixel => pixel !== 0);
+              
+              if (hasDrawing) {
+                signatures.push(dataUrl);
+              } else {
+                signatures.push(null);
+              }
             }
           } else {
-            // Use local signature
+            // Use local signature if drawn
             const dataUrl = canvas.toDataURL("image/png");
-            signatures.push(dataUrl);
+            const ctx = canvas.getContext("2d");
+            const imageData = ctx?.getImageData(0, 0, canvas.width, canvas.height);
+            const hasDrawing = imageData && imageData.data.some(pixel => pixel !== 0);
+            
+            if (hasDrawing) {
+              signatures.push(dataUrl);
+            } else {
+              signatures.push(null);
+            }
           }
+        } else {
+          signatures.push(null);
         }
+      }
+
+      // Check if all required signatures are provided
+      const missingSignatures = signatures.filter((sig, index) => !sig).length;
+      if (missingSignatures > 0) {
+        alert(`Please provide signatures for all ${applicants.length} applicants before submitting.`);
+        setSubmitting(false);
+        return;
       }
 
       // Create application data
@@ -328,6 +611,33 @@ export default function NewApplicationPage() {
         employmentCompany: form.employmentCompany || "",
         employmentJobTitle: form.employmentJobTitle || "",
         employmentMonthlyIncome: form.employmentMonthlyIncome || "",
+        // Form sections data
+        applicants: applicants,
+        occupants: occupants,
+        employments: employments,
+        references: references,
+        autos: autos,
+        residences: visibleResidences.map(i => ({
+          address: form[`residence${i}_address`] || "",
+          from: form[`residence${i}_from`] || "",
+          to: form[`residence${i}_to`] || "",
+          landlord: form[`residence${i}_landlord`] || "",
+          phone: form[`residence${i}_phone`] || "",
+        })),
+        currentAddress: {
+          street: form.currentAddress || "",
+          city: form.currentCity || "",
+          province: form.currentProvince || "",
+          postalCode: form.currentPostalCode || "",
+        },
+        // Signature data
+        signatures: signatures,
+        signatureLinks: signatureLinks,
+        signatureStatuses: signatureStatuses,
+        // Attachments
+        attachments: attachmentUrls,
+        // Status
+        status: "submitted",
         submittedAt: new Date(),
       };
 
@@ -522,73 +832,151 @@ export default function NewApplicationPage() {
         </div>
         {/* Signature section at the end of the form */}
         <div className="mb-8">
-          <h4 className="font-bold mt-8 mb-2">Applicant Signatures</h4>
-          {applicants.map((a, i) => (
-            <div key={i} className="mb-4">
-              <Label>{a.name ? `${a.name}'s Signature` : `Applicant ${i + 1} Signature`}</Label>
-              <canvas
-                ref={el => {
-                  signaturePadRefs.current[i] = el;
-                  if (el) setupSignaturePad(el);
-                }}
-                width={300}
-                height={80}
-                style={{ border: '1px solid #ccc', background: '#fff', display: 'block' }}
-              />
-                  <div className="flex gap-2 mt-2">
-                    <Button type="button" size="sm" onClick={() => {
-                const canvas = signaturePadRefs.current[i];
-                if (canvas) {
-                  const ctx = canvas.getContext("2d");
-                  if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
-                }
-              }}>Clear</Button>
-                    <Button type="button" size="sm" variant="outline" onClick={() => generateSigningLink(i)}>
-                      <Link className="h-4 w-4 mr-1" />
-                      Generate Signing Link
-                    </Button>
-                  </div>
-                  {signatureLinks[i] && (
-                    <div className="mt-2 p-2 border rounded bg-muted/50">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <ExternalLink className="h-4 w-4 text-muted-foreground" />
-                          <span className="text-sm font-medium">Signing Link:</span>
-                          {signatureStatuses[i] && (
-                            <span className={`text-xs px-2 py-1 rounded ${
-                              signatureStatuses[i] === 'completed' 
-                                ? 'bg-green-100 text-green-800' 
-                                : 'bg-yellow-100 text-yellow-800'
-                            }`}>
-                              {signatureStatuses[i] === 'completed' ? 'Completed' : 'Pending'}
-                            </span>
-                          )}
-                        </div>
-                        <Button 
-                          type="button" 
-                          size="sm" 
-                          variant="outline" 
-                          onClick={() => copySignatureLink(signatureLinks[i], i)}
-                          className="flex items-center gap-1"
-                        >
-                          <Copy className="h-3 w-3" />
-                          Copy
-                        </Button>
-                      </div>
-                      <div className="mt-1 text-xs text-muted-foreground break-all">
-                        {signatureLinks[i]}
-                      </div>
+          <div className="flex items-center justify-between mb-2">
+            <h4 className="font-bold mt-8">Applicant Signatures</h4>
+            <Button 
+              type="button" 
+              size="sm" 
+              variant="outline" 
+              onClick={() => checkSignatureStatus()}
+              disabled={checkingSignatures}
+              className="flex items-center gap-1"
+            >
+              <RefreshCw className={`h-4 w-4 ${checkingSignatures ? 'animate-spin' : ''}`} />
+              {checkingSignatures ? "Checking..." : "Refresh All Signatures"}
+            </Button>
+          </div>
+
+                      {applicants.map((a, i) => {
+              const isCompleted = signatureStatuses[i] === 'completed';
+              return (
+              <div key={i} className="mb-4">
+                <Label>{a.name ? `${a.name}'s Signature` : `Applicant ${i + 1} Signature`}</Label>
+                
+                {/* Show completed signature or canvas */}
+                {isCompleted ? (
+                  <div className="border rounded p-2 bg-green-50">
+                    <div className="flex items-center gap-2 mb-2">
+                      <CheckCircle className="h-4 w-4 text-green-600" />
+                      <span className="text-sm font-medium text-green-800">Signature Completed (External)</span>
                     </div>
-                  )}
-                  <div className="text-xs text-muted-foreground mb-2">
-                    Draw your signature above, then click "Generate Signing Link" to create a shareable link for others to sign
+                    {savedSignatures[i] && (
+                      <img 
+                        src={savedSignatures[i]}
+                        alt="Completed signature"
+                        className="border rounded bg-white p-2"
+                        style={{ maxWidth: '300px', maxHeight: '80px' }}
+                      />
+                    )}
                   </div>
-            </div>
-          ))}
+                ) : (
+                  <div>
+                    <canvas
+                      ref={el => {
+                        signaturePadRefs.current[i] = el;
+                        if (el) setupSignaturePad(el);
+                      }}
+                      width={300}
+                      height={80}
+                      style={{ border: '1px solid #ccc', background: '#fff', display: 'block' }}
+                    />
+                    <div className="text-xs text-muted-foreground mt-1">
+                      Draw your signature above, or use the signing link below
+                    </div>
+                  </div>
+                )}
+                
+                <div className="flex gap-2 mt-2">
+                  {!isCompleted && (
+                    <>
+                      <Button type="button" size="sm" onClick={() => {
+                        const canvas = signaturePadRefs.current[i];
+                        if (canvas) {
+                          const ctx = canvas.getContext("2d");
+                          if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+                        }
+                      }}>Clear</Button>
+                      <Button type="button" size="sm" variant="outline" onClick={() => generateSigningLink(i)}>
+                        <Link className="h-4 w-4 mr-1" />
+                        Generate Signing Link
+                      </Button>
+                    </>
+                  )}
+                  <Button 
+                    type="button" 
+                    size="sm" 
+                    variant="outline" 
+                    onClick={() => checkSignatureStatus(i)}
+                    disabled={checkingSignatures}
+                    className="flex items-center gap-1"
+                  >
+                    <RefreshCw className={`h-3 w-3 ${checkingSignatures ? 'animate-spin' : ''}`} />
+                    {checkingSignatures ? "Checking..." : "Check Status"}
+                  </Button>
+                </div>
+                
+                {signatureLinks[i] && !isCompleted && (
+                  <div className="mt-2 p-2 border rounded bg-muted/50">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <ExternalLink className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm font-medium">Signing Link:</span>
+                        {signatureStatuses[i] && (
+                          <span className={`text-xs px-2 py-1 rounded ${
+                            signatureStatuses[i] === 'completed' 
+                              ? 'bg-green-100 text-green-800' 
+                              : 'bg-yellow-100 text-yellow-800'
+                          }`}>
+                            {signatureStatuses[i] === 'completed' ? 'Completed' : 'Pending'}
+                          </span>
+                        )}
+                      </div>
+                      <Button 
+                        type="button" 
+                        size="sm" 
+                        variant="outline" 
+                        onClick={() => copySignatureLink(signatureLinks[i], i)}
+                        className="flex items-center gap-1"
+                      >
+                        <Copy className="h-3 w-3" />
+                        Copy
+                      </Button>
+                    </div>
+                    <div className="mt-1 text-xs text-muted-foreground break-all">
+                      {signatureLinks[i]}
+                    </div>
+                  </div>
+                )}
+                
+                <div className="text-xs text-muted-foreground mb-2">
+                  {isCompleted 
+                    ? "Signature has been completed via external link"
+                    : "You can either draw your signature directly above, or generate a signing link to share with others"
+                  }
+                </div>
+              </div>
+            );
+          })}
         </div>
-        <Button type="submit" className="w-full" disabled={submitting}>
-          {submitting ? "Submitting..." : "Submit Application"}
-        </Button>
+        <div className="flex gap-4 mt-6">
+          <Button 
+            type="button" 
+            variant="outline" 
+            onClick={handleSaveChanges} 
+            disabled={saving}
+            className="flex-1"
+          >
+            {saving ? "Saving..." : "Save Changes"}
+          </Button>
+          <Button type="submit" className="flex-1" disabled={submitting}>
+            {submitting ? "Submitting..." : "Submit Application"}
+          </Button>
+        </div>
+        {lastSaved && (
+          <p className="text-sm text-muted-foreground text-center mt-2">
+            Last saved: {lastSaved.toLocaleString()}
+          </p>
+        )}
       </form>
         </CardContent>
       </Card>

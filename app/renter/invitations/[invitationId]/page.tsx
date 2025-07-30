@@ -55,15 +55,14 @@ export default function RenterInvitationDetailsPage() {
     }
   }, [invitation, user])
 
-  const handleAccept = async () => {
+  const handleSendApplication = async () => {
     if (!invitation) return
     setAccepting(true)
     try {
-      await invitationService.updateInvitationStatus(invitation.id, "accepted")
-      // Redirect to application form page
+      // Redirect to the detailed application form
       router.push(`/renter/applications/new?invitationId=${invitation.id}`)
-    } catch (e) {
-      alert("Failed to accept invitation.")
+    } catch (err) {
+      alert("Failed to redirect to application form.")
     } finally {
       setAccepting(false)
     }
@@ -109,16 +108,9 @@ export default function RenterInvitationDetailsPage() {
       setActiveTab={() => {}}
       belowLocation={
         <>
-          {invitation.status === "pending" && (
-            <Button onClick={handleAccept} disabled={accepting} className="w-full mt-4">
-              {accepting ? "Accepting..." : "Accept Invitation"}
-            </Button>
-          )}
-          {invitation.status === "accepted" && (
-            <>
-              <div className="text-success font-semibold w-full text-center mt-4">You have accepted this invitation.</div>
-            </>
-          )}
+          <Button onClick={handleSendApplication} disabled={accepting} className="w-full mt-4">
+            {accepting ? "Redirecting..." : "Start Application"}
+          </Button>
         </>
       }
     />

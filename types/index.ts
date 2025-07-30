@@ -145,11 +145,13 @@ export interface Notice {
     | "utility_shutdown"
     | "cleanliness"
     | "custom"
+    | "lease_received"
   subject: string
   message: string
   attachments?: string[]
   sentAt: Date
   readAt?: Date
+  leaseAgreementId?: string
 }
 
 export interface LeaseTemplate {

@@ -1,4 +1,4 @@
-import { collection, addDoc, serverTimestamp, query, where, getDocs, doc, updateDoc } from "firebase/firestore"
+import { collection, addDoc, serverTimestamp, query, where, getDocs, doc, updateDoc, setDoc } from "firebase/firestore"
 import { db } from "../firebase"
 
 export const applicationService = {
@@ -34,5 +34,13 @@ export const applicationService = {
       reviewedAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     })
+  },
+
+  async saveIncompleteApplication(invitationId: string, applicationData: any) {
+    const docRef = doc(db, "applications", invitationId)
+    await setDoc(docRef, {
+      ...applicationData,
+      updatedAt: serverTimestamp(),
+    }, { merge: true }) // merge: true allows partial updates
   },
 } 

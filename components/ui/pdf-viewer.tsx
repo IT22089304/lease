@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { X, Download, ZoomIn, ZoomOut, Send, CheckCircle, Maximize2, Minimize2, Save } from "lucide-react"
+import { X, Download, ZoomIn, ZoomOut, Send, CheckCircle, Maximize2, Minimize2 } from "lucide-react"
 import { storage, db } from "@/lib/firebase"
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage"
 import { collection, addDoc, serverTimestamp } from "firebase/firestore"
@@ -22,6 +22,8 @@ interface PDFViewerProps {
   onSubmit?: () => void
   isSaving?: boolean
   onComplete?: () => void
+  propertyId?: string
+  landlordId?: string
 }
 
 export function PDFViewer({ 
@@ -34,7 +36,9 @@ export function PDFViewer({
   onReceiverEmailChange,
   onSubmit,
   isSaving = false,
-  onComplete
+  onComplete,
+  propertyId,
+  landlordId
 }: PDFViewerProps) {
   const [scale, setScale] = useState(1)
   const [isMaximized, setIsMaximized] = useState(false)
@@ -88,7 +92,28 @@ export function PDFViewer({
       // Save to database
       const docId = await saveToDatabase(filledPdfUrl, receiverEmail)
       
-      toast.success("Lease sent successfully!")
+      // Create a notice for the renter
+      const noticeData = {
+        type: "lease_received",
+        subject: "New Lease Agreement Received",
+        message: `You have received a new lease agreement for the property. Please review and sign the document at your earliest convenience.`,
+        renterId: receiverEmail.trim(), // Use renterId to match the notice service query
+        propertyId: propertyId || "",
+        landlordId: landlordId || "",
+        leaseAgreementId: docId,
+        sentAt: serverTimestamp(),
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      }
+
+      console.log("Creating notice with data:", noticeData)
+      
+      // Save the notice to the notices collection
+      const noticeRef = await addDoc(collection(db, "notices"), noticeData)
+      
+      console.log("Successfully created notice with ID:", noticeRef.id)
+      
+      toast.success("Lease sent successfully! Notice sent to renter.")
       console.log("Sent filled PDF with ID:", docId)
       
       if (onSubmit) {
@@ -106,59 +131,7 @@ export function PDFViewer({
     setIsMaximized(!isMaximized)
   }
 
-  const handleSaveToComputer = async () => {
-    try {
-      // Try to get the current PDF content from the iframe
-      if (iframeRef.current) {
-        const iframe = iframeRef.current
-        
-        // Method 1: Try to get the PDF via the iframe's current URL
-        const currentUrl = iframe.src
-        console.log("Current iframe URL:", currentUrl)
-        
-        // Method 2: Create a blob from the current PDF content
-        const response = await fetch(currentUrl)
-        if (response.ok) {
-          const blob = await response.blob()
-          const url = URL.createObjectURL(blob)
-          
-          // Create download link
-          const downloadLink = document.createElement('a')
-          downloadLink.href = url
-          downloadLink.download = `filled-lease-${Date.now()}.pdf`
-          downloadLink.target = '_blank'
-          
-          // Trigger the download
-          document.body.appendChild(downloadLink)
-          downloadLink.click()
-          document.body.removeChild(downloadLink)
-          
-          // Clean up the blob URL
-          URL.revokeObjectURL(url)
-          
-          toast.success("Filled PDF saved to computer")
-          return
-        }
-      }
-      
-      // Fallback: Download the original PDF
-      const downloadLink = document.createElement('a')
-      downloadLink.href = pdfUrl
-      downloadLink.download = `lease-template-${Date.now()}.pdf`
-      downloadLink.target = '_blank'
-      
-      // Trigger the download
-      document.body.appendChild(downloadLink)
-      downloadLink.click()
-      document.body.removeChild(downloadLink)
-      
-      toast.success("PDF template saved to computer")
-      
-    } catch (error) {
-      console.error("Error saving PDF:", error)
-      toast.error("Failed to save PDF")
-    }
-  }
+
 
   const captureFilledPDF = async (): Promise<Blob | null> => {
     try {
@@ -310,7 +283,7 @@ startxref
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className={`${isMaximized ? 'w-screen h-screen max-w-none' : 'max-w-6xl w-full h-[95vh]'} p-0`}>
+      <DialogContent className={`${isMaximized ? 'w-screen h-screen max-w-none' : 'max-w-7xl w-full h-[98vh]'} p-0`}>
         <DialogHeader className="p-4 border-b">
           <div className="flex items-center justify-between">
             <DialogTitle className="text-lg font-semibold">
@@ -335,14 +308,6 @@ startxref
                 disabled={scale >= 3}
               >
                 <ZoomIn className="h-4 w-4" />
-              </Button>
-              <Button 
-                variant="outline" 
-                size="sm" 
-                onClick={handleSaveToComputer}
-                title="Save to Computer"
-              >
-                <Save className="h-4 w-4" />
               </Button>
               <Button variant="outline" size="sm" asChild>
                 <a href={pdfUrl} download>
@@ -373,7 +338,7 @@ startxref
                 style={{
                   width: `${scale * 100}%`,
                   height: `${scale * 100}%`,
-                  minHeight: '600px',
+                  minHeight: '800px',
                   maxWidth: '100%'
                 }}
                 title={title}
@@ -389,8 +354,7 @@ startxref
                   <p className="font-medium mb-2">📝 How to save and send your filled PDF:</p>
                   <ol className="list-decimal list-inside space-y-1 text-xs">
                     <li>Fill out the PDF form above</li>
-                    <li>Click the <strong>Save</strong> button (💾) in the toolbar to save to your computer</li>
-                    <li>Or use Ctrl+S in the PDF viewer</li>
+                    <li>Use Ctrl+S in the PDF viewer to save to your computer</li>
                     <li>Upload the saved file using the "Upload Filled PDF" button below</li>
                     <li>Enter the receiver email and click "Send Lease"</li>
                   </ol>
@@ -401,21 +365,21 @@ startxref
                   )}
                 </div>
                 
-                <div className="flex items-center gap-4">
-                  <div className="flex-1">
-                    <Label htmlFor="receiver-email" className="text-sm">Receiver Email</Label>
-                    <Input
-                      id="receiver-email"
-                      type="email"
-                      placeholder="renter@example.com"
-                      value={receiverEmail}
+              <div className="flex items-center gap-4">
+                <div className="flex-1">
+                  <Label htmlFor="receiver-email" className="text-sm">Receiver Email</Label>
+                  <Input
+                    id="receiver-email"
+                    type="email"
+                    placeholder="renter@example.com"
+                    value={receiverEmail}
                       onChange={(e) => {
                         onReceiverEmailChange?.(e.target.value)
                       }}
-                      className="mt-1"
-                    />
-                  </div>
-                  <div className="flex gap-2">
+                    className="mt-1"
+                  />
+                </div>
+                <div className="flex gap-2">
                     <div className="relative">
                       <input
                         type="file"
@@ -424,23 +388,23 @@ startxref
                         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                         disabled={isSavingToStorage}
                       />
-                      <Button 
-                        variant="outline"
+                  <Button 
+                    variant="outline"
                         disabled={isSavingToStorage}
-                        className="flex items-center gap-2"
-                      >
-                        <CheckCircle className="h-4 w-4" />
+                    className="flex items-center gap-2"
+                  >
+                    <CheckCircle className="h-4 w-4" />
                         {isSavingToStorage ? "Uploading..." : "Upload Filled PDF"}
-                      </Button>
+                  </Button>
                     </div>
-                    <Button 
+                  <Button 
                       onClick={handleSendLease}
                       disabled={isSaving || !receiverEmail.trim() || !uploadedFile}
-                      className="flex items-center gap-2"
-                    >
-                      <Send className="h-4 w-4" />
+                    className="flex items-center gap-2"
+                  >
+                    <Send className="h-4 w-4" />
                       {isSaving ? "Sending..." : uploadedFile ? `Send ${uploadedFile.name}` : "Send Lease"}
-                    </Button>
+                  </Button>
                   </div>
                 </div>
               </div>
