@@ -476,10 +476,11 @@ interface ApplicationDetailsModalProps {
 
 function ApplicationDetailsModal({ application, propertyAddress, onClose, onApprove, onReject }: ApplicationDetailsModalProps) {
   // Debug: Log the application data structure
-  console.log("Application Data:", application.applicationData)
-  console.log("Applicants:", application.applicationData?.applicants)
-  console.log("Signatures:", application.applicationData?.signatures)
-  console.log("Signature Statuses:", application.applicationData?.signatureStatuses)
+  const appData = application as any
+  console.log("Application Data:", appData)
+  console.log("Applicants:", appData.applicants)
+  console.log("Signatures:", appData.signatures)
+  console.log("Signature Statuses:", appData.signatureStatuses)
 
   const getStatusBadge = (status: LeaseApplication["status"]) => {
     const variants = {
@@ -618,9 +619,9 @@ function ApplicationDetailsModal({ application, propertyAddress, onClose, onAppr
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  {application.applicationData?.applicants && Array.isArray(application.applicationData.applicants) && application.applicationData.applicants.length > 0 ? (
+                  {appData.applicants && Array.isArray(appData.applicants) && appData.applicants.length > 0 ? (
                     <div className="space-y-4">
-                      {application.applicationData.applicants.map((applicant: any, index: number) => (
+                      {appData.applicants.map((applicant: any, index: number) => (
                         <div key={index} className="border rounded-lg p-4">
                           <h4 className="font-medium mb-2">Applicant {index + 1}</h4>
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
@@ -670,9 +671,9 @@ function ApplicationDetailsModal({ application, propertyAddress, onClose, onAppr
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  {application.applicationData?.employments && application.applicationData.employments.length > 0 ? (
+                  {appData.employments && appData.employments.length > 0 ? (
                     <div className="space-y-4">
-                      {application.applicationData.employments.map((employment: any, index: number) => (
+                      {appData.employments.map((employment: any, index: number) => (
                         <div key={index} className="border rounded-lg p-4">
                           <h4 className="font-medium mb-2">Employment {index + 1}</h4>
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
@@ -722,19 +723,19 @@ function ApplicationDetailsModal({ application, propertyAddress, onClose, onAppr
                           <div className="space-y-2">
                             <div className="flex justify-between">
                               <span className="text-muted-foreground">Company:</span>
-                              <span className="font-medium">{application.applicationData?.employmentCompany || 'Not provided'}</span>
+                              <span className="font-medium">{appData.employmentCompany || 'Not provided'}</span>
                             </div>
                             <div className="flex justify-between">
                               <span className="text-muted-foreground">Job Title:</span>
-                              <span className="font-medium">{application.applicationData?.employmentJobTitle || 'Not provided'}</span>
+                              <span className="font-medium">{appData.employmentJobTitle || 'Not provided'}</span>
                             </div>
                           </div>
                           <div className="space-y-2">
                             <div className="flex justify-between">
                               <span className="text-muted-foreground">Monthly Income:</span>
                               <span className="font-medium">
-                                {application.applicationData?.employmentMonthlyIncome ? 
-                                  `$${application.applicationData.employmentMonthlyIncome.toLocaleString()}` : 
+                                {appData.employmentMonthlyIncome ? 
+                                  `$${appData.employmentMonthlyIncome.toLocaleString()}` : 
                                   'Not provided'
                                 }
                               </span>
@@ -757,9 +758,9 @@ function ApplicationDetailsModal({ application, propertyAddress, onClose, onAppr
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                                     {application.applicationData?.residences && application.applicationData.residences.length > 0 ? (
-                     <div className="space-y-4">
-                       {application.applicationData.residences.map((residence: any, index: number) => (
+                                                       {appData.residences && appData.residences.length > 0 ? (
+                    <div className="space-y-4">
+                      {appData.residences.map((residence: any, index: number) => (
                         <div key={index} className="border rounded-lg p-4">
                           <h4 className="font-medium mb-2">Residence {index + 1}</h4>
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
@@ -813,9 +814,9 @@ function ApplicationDetailsModal({ application, propertyAddress, onClose, onAppr
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                                     {application.applicationData?.references && application.applicationData.references.length > 0 ? (
-                     <div className="space-y-4">
-                       {application.applicationData.references.map((reference: any, index: number) => (
+                                                       {appData.references && appData.references.length > 0 ? (
+                    <div className="space-y-4">
+                      {appData.references.map((reference: any, index: number) => (
                         <div key={index} className="border rounded-lg p-4">
                           <h4 className="font-medium mb-2">Reference {index + 1}</h4>
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
@@ -863,9 +864,9 @@ function ApplicationDetailsModal({ application, propertyAddress, onClose, onAppr
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  {application.applicationData?.autos && application.applicationData.autos.length > 0 ? (
+                  {appData.autos && appData.autos.length > 0 ? (
                     <div className="space-y-4">
-                      {application.applicationData.autos.map((vehicle: any, index: number) => (
+                      {appData.autos.map((vehicle: any, index: number) => (
                         <div key={index} className="border rounded-lg p-4">
                           <h4 className="font-medium mb-2">Vehicle {index + 1}</h4>
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
@@ -909,16 +910,16 @@ function ApplicationDetailsModal({ application, propertyAddress, onClose, onAppr
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  {application.applicationData?.signatures && typeof application.applicationData.signatures === 'object' && Object.keys(application.applicationData.signatures).length > 0 ? (
+                  {appData.signatures && typeof appData.signatures === 'object' && Object.keys(appData.signatures).length > 0 ? (
                     <div className="space-y-4">
-                      {Object.entries(application.applicationData.signatures as Record<string, any>).map(([signerIndex, signatureData]) => (
+                      {Object.entries(appData.signatures as Record<string, any>).map(([signerIndex, signatureData]) => (
                         <div key={signerIndex} className="border rounded-lg p-4">
                           <h4 className="font-medium mb-2">Applicant {parseInt(signerIndex) + 1} Signature</h4>
                           <div className="space-y-2 text-sm">
                             <div className="flex justify-between">
                               <span className="text-muted-foreground">Status:</span>
                               <span className="font-medium">
-                                {(application.applicationData.signatureStatuses as Record<string, any>)?.[signerIndex] === 'completed' ? 'Completed' : 'Pending'}
+                                {(appData.signatureStatuses as Record<string, any>)?.[signerIndex] === 'completed' ? 'Completed' : 'Pending'}
                               </span>
                             </div>
                                                          {signatureData && typeof signatureData === 'string' && (
