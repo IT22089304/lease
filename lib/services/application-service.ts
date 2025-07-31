@@ -1,5 +1,6 @@
 import { collection, addDoc, serverTimestamp, query, where, getDocs, doc, updateDoc, setDoc } from "firebase/firestore"
 import { db } from "../firebase"
+import { notificationService } from "./notification-service"
 
 export const applicationService = {
   async createApplication(application: {
@@ -14,11 +15,23 @@ export const applicationService = {
     employmentMonthlyIncome?: string
     submittedAt?: Date
   }) {
-    await addDoc(collection(db, "applications"), {
+    const docRef = await addDoc(collection(db, "applications"), {
       ...application,
       submittedAt: application.submittedAt || serverTimestamp(),
       updatedAt: serverTimestamp(),
     })
+    
+    // Send notification to landlord
+    try {
+      await notificationService.notifyApplicationSubmitted(application.landlordId, {
+        ...application,
+        id: docRef.id
+      })
+    } catch (error) {
+      console.error("Error sending notification:", error)
+    }
+    
+    return docRef.id
   },
 
   async getApplicationsForLandlord(landlordId: string) {

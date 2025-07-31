@@ -27,6 +27,14 @@ type PropertyFormData = {
   amenities?: string[]
   images?: string[]
   monthlyRent: number
+  securityDeposit: number
+  applicationFee: number
+  petPolicy?: {
+    allowed: boolean
+    maxPets?: number
+    fee?: number
+    restrictions?: string
+  }
 }
 
 export default function AddPropertyPage() {

@@ -51,13 +51,24 @@ export interface Property {
   id: string
   landlordId: string
   address: Address
-  type: "apartment" | "house" | "condo" | "townhouse" | "other"
+  type: string
   bedrooms: number
   bathrooms: number
   squareFeet?: number
   description?: string
   images?: string[]
   amenities?: string[]
+  monthlyRent: number
+  securityDeposit?: number
+  applicationFee?: number
+  petDeposit?: number
+  petPolicy?: {
+    allowed: boolean
+    maxPets?: number
+    fee?: number
+    restrictions?: string
+  }
+  status?: "available" | "occupied" | "maintenance"
   createdAt: Date
   updatedAt: Date
 }
@@ -122,6 +133,7 @@ export interface RentPayment {
   status: "pending" | "paid" | "overdue" | "partial"
   paymentMethod?: string
   transactionId?: string
+  paymentType?: "monthly_rent" | "application_fee" | "pet_fee" | "security_deposit"
   createdAt: Date
   renterId?: string
   landlordId?: string
@@ -146,12 +158,18 @@ export interface Notice {
     | "cleanliness"
     | "custom"
     | "lease_received"
+    | "lease_completed"
+    | "invoice_sent"
+    | "payment_received"
+    | "payment_successful"
   subject: string
   message: string
   attachments?: string[]
   sentAt: Date
   readAt?: Date
   leaseAgreementId?: string
+  renterEmail?: string
+  invoiceId?: string
 }
 
 export interface LeaseTemplate {
@@ -266,4 +284,25 @@ export interface DashboardStats {
   pendingSignatures: number
   pendingApplications?: number
   activeInvitations?: number
+}
+
+export interface Invoice {
+  id: string
+  landlordId: string
+  propertyId: string
+  renterEmail: string
+  renterId: string
+  amount: number
+  // Breakdown amounts
+  monthlyRent: number
+  securityDeposit: number
+  applicationFee: number
+  petFee: number
+  notes?: string
+  includePetFee?: boolean
+  status: "sent" | "paid" | "overdue" | "cancelled"
+  propertyDetails?: any
+  noticeId?: string
+  createdAt: Date
+  updatedAt: Date
 }

@@ -29,6 +29,8 @@ type PropertyFormData = {
   amenities?: string[]
   images?: string[]
   monthlyRent: number
+  securityDeposit: number
+  applicationFee: number
   petPolicy?: {
     allowed: boolean
     maxPets?: number
@@ -61,6 +63,8 @@ export function PropertyForm({ property, onSave, onCancel }: PropertyFormProps) 
     amenities: [],
     images: [],
     monthlyRent: 0,
+    securityDeposit: 0,
+    applicationFee: 0,
     petPolicy: { allowed: false, maxPets: 1, fee: 0, restrictions: "" },
   })
 
@@ -309,6 +313,31 @@ export function PropertyForm({ property, onSave, onCancel }: PropertyFormProps) 
               onChange={(e) => updateField("monthlyRent", Number.parseInt(e.target.value) || 0)}
               required
             />
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="securityDeposit">Security Deposit ($)</Label>
+                <Input
+                  id="securityDeposit"
+                  type="number"
+                  min="0"
+                  value={formData.securityDeposit}
+                  onChange={(e) => updateField("securityDeposit", Number.parseInt(e.target.value) || 0)}
+                  placeholder="0"
+                />
+              </div>
+              <div>
+                <Label htmlFor="applicationFee">Application Fee ($)</Label>
+                <Input
+                  id="applicationFee"
+                  type="number"
+                  min="0"
+                  value={formData.applicationFee}
+                  onChange={(e) => updateField("applicationFee", Number.parseInt(e.target.value) || 0)}
+                  placeholder="0"
+                />
+              </div>
+            </div>
           </div>
         </CardContent>
       </Card>

@@ -65,6 +65,13 @@ export function PropertyCard({
           </div>
         </div>
 
+        {property.monthlyRent && (
+          <div className="text-center py-2 bg-muted/50 rounded">
+            <p className="text-lg font-semibold text-primary">${property.monthlyRent.toLocaleString()}</p>
+            <p className="text-xs text-muted-foreground">per month</p>
+          </div>
+        )}
+
         {leased && renterInfo && (
           <div className="flex items-center text-sm text-muted-foreground bg-muted/50 p-2 rounded">
             <User className="h-4 w-4 mr-2" />

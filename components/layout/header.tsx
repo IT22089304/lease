@@ -1,6 +1,6 @@
 "use client"
 
-import { Bell, LogOut, Settings, User, Home, CreditCard, FileText, Send, Eye } from "lucide-react"
+import { Bell, LogOut, Settings, User, Home, CreditCard, FileText, Send, Eye, CheckCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -38,7 +38,7 @@ export function Header() {
         
         // Calculate unread count (notices + invitations)
         const unreadNotices = realNotices.filter(n => !n.readAt).length;
-        const unreadInvitations = realInvitations.filter(i => i.status === 'pending').length;
+        const unreadInvitations = realInvitations.filter((i: any) => i.status === 'pending').length;
         setUnreadCount(unreadNotices + unreadInvitations);
       } catch (error) {
         console.error('Error fetching notifications:', error);
@@ -59,7 +59,7 @@ export function Header() {
           { label: "Invitations", href: "/invitations", icon: Send },
           { label: "Applications", href: "/applications", icon: FileText },
           { label: "Incomes", href: "/dashboard/incomes", icon: CreditCard },
-          { label: "Notices", href: "/notices", icon: FileText },
+          { label: "Notifications", href: "/notifications", icon: Bell },
         ]
       case "renter":
         return [

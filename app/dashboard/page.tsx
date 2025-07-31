@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Plus, Search, Filter, Send, FileText } from "lucide-react"
+import { Plus, Search, Filter, Send, FileText, Eye, Calendar, CheckCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { PropertyCard } from "@/components/dashboard/property-card"
@@ -11,8 +11,12 @@ import { useLandlordDashboard } from "@/hooks/use-landlord-dashboard"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { leaseService } from "@/lib/services/lease-service"
+import { noticeService } from "@/lib/services/notice-service"
 import { doc, getDoc, query, collection, where, getDocs } from "firebase/firestore"
 import { db } from "@/lib/firebase"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
+import type { Notice } from "@/types"
 
 export default function DashboardPage() {
   const router = useRouter()
@@ -23,6 +27,8 @@ export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState("overview")
   const [leases, setLeases] = useState<any[]>([])
   const [renterInfo, setRenterInfo] = useState<{[key: string]: any}>({})
+  const [notices, setNotices] = useState<Notice[]>([])
+  const [leaseNotices, setLeaseNotices] = useState<Notice[]>([])
 
   // Debug: log user and dashboard data
   useEffect(() => {
@@ -140,6 +146,26 @@ export default function DashboardPage() {
     fetchLeasesAndRenters()
   }, [user?.id])
 
+  // Fetch notices
+  useEffect(() => {
+    const fetchNotices = async () => {
+      if (!user?.id) return
+      try {
+        const notices = await noticeService.getLandlordNotices(user.id)
+        console.log(`[Dashboard] Fetched ${notices.length} notices:`, notices)
+        setNotices(notices)
+        
+        // Also fetch lease notices
+        const leaseNotices = await noticeService.getLandlordLeaseNotices(user.id)
+        console.log(`[Dashboard] Fetched ${leaseNotices.length} lease notices:`, leaseNotices)
+        setLeaseNotices(leaseNotices)
+      } catch (error) {
+        console.error("Error fetching notices:", error)
+      }
+    }
+    fetchNotices()
+  }, [user?.id])
+
   const filteredProperties = properties.filter(
     (property) =>
       `${property.address.street} ${property.address.city}`.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -244,6 +270,46 @@ export default function DashboardPage() {
           <FileText className="h-6 w-6" />
           <span>Send Notices</span>
         </Button>
+        <Button variant="outline" className="h-20 flex-col gap-2" onClick={() => router.push("/lease-notices")}>
+          <CheckCircle className="h-6 w-6" />
+          <span>Lease Notices</span>
+        </Button>
+      </div>
+
+      {/* Notice Stats */}
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total Notices</CardTitle>
+            <FileText className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-primary">{notices.length}</div>
+            <p className="text-xs text-muted-foreground mt-1">All notices sent</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Lease Notices</CardTitle>
+            <CheckCircle className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-success">{leaseNotices.length}</div>
+            <p className="text-xs text-muted-foreground mt-1">Lease-related notices</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Unread Notices</CardTitle>
+            <Eye className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-destructive">
+              {notices.filter(n => !n.readAt).length + leaseNotices.filter(n => !n.readAt).length}
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">Require attention</p>
+          </CardContent>
+        </Card>
       </div>
 
       <div className="space-y-6">
@@ -299,6 +365,72 @@ export default function DashboardPage() {
                 Add Your First Property
               </Button>
             )}
+          </div>
+        )}
+      </div>
+
+      {/* Recent Notices Section */}
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <h2 className="text-2xl font-bold text-primary">Recent Notices</h2>
+          <Button variant="outline" onClick={() => router.push("/notices")}>
+            View All Notices
+          </Button>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {[...notices, ...leaseNotices]
+            .sort((a, b) => new Date(b.sentAt).getTime() - new Date(a.sentAt).getTime())
+            .slice(0, 6)
+            .map((notice) => (
+            <Card key={notice.id} className={!notice.readAt ? "border-destructive/50" : ""}>
+              <CardHeader className="pb-3">
+                <div className="flex items-start justify-between">
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <CardTitle className="text-lg line-clamp-1">{notice.subject}</CardTitle>
+                      {!notice.readAt && (
+                        <Badge variant="destructive" className="text-xs">New</Badge>
+                      )}
+                      {notice.type === "lease_completed" && (
+                        <Badge variant="default" className="text-xs">Lease Signed</Badge>
+                      )}
+                      {notice.type === "lease_received" && (
+                        <Badge variant="outline" className="text-xs">Lease Sent</Badge>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <span>Tenant: {notice.renterEmail || notice.renterId}</span>
+                      <span>•</span>
+                      <span>{new Date(notice.sentAt).toLocaleDateString()}</span>
+                    </div>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground line-clamp-2">
+                  {notice.message}
+                </p>
+                {notice.type === "lease_completed" && (
+                  <div className="mt-3 flex items-center gap-2">
+                    <CheckCircle className="h-4 w-4 text-success" />
+                    <span className="text-xs text-success font-medium">Lease agreement completed</span>
+                  </div>
+                )}
+                {notice.type === "lease_received" && (
+                  <div className="mt-3 flex items-center gap-2">
+                    <FileText className="h-4 w-4 text-blue-500" />
+                    <span className="text-xs text-blue-500 font-medium">Lease agreement sent</span>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
+        {notices.length === 0 && leaseNotices.length === 0 && (
+          <div className="text-center py-8">
+            <p className="text-muted-foreground">No notices yet.</p>
           </div>
         )}
       </div>

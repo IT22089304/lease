@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label"
 import { X, Download, ZoomIn, ZoomOut, Send, CheckCircle, Maximize2, Minimize2 } from "lucide-react"
 import { storage, db } from "@/lib/firebase"
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage"
-import { collection, addDoc, serverTimestamp } from "firebase/firestore"
+import { collection, addDoc, serverTimestamp, doc, updateDoc, query, where, getDocs } from "firebase/firestore"
 import { toast } from "sonner"
 
 interface PDFViewerProps {
@@ -24,6 +24,14 @@ interface PDFViewerProps {
   onComplete?: () => void
   propertyId?: string
   landlordId?: string
+  isRenterSubmission?: boolean
+  leaseAgreementId?: string
+  currentUserEmail?: string
+  onLeaseSubmitted?: () => void
+  isLandlordView?: boolean
+  selectedNotice?: any
+  onDownload?: () => void
+  onSendInvoice?: () => void
 }
 
 export function PDFViewer({ 
@@ -38,7 +46,15 @@ export function PDFViewer({
   isSaving = false,
   onComplete,
   propertyId,
-  landlordId
+  landlordId,
+  isRenterSubmission,
+  leaseAgreementId,
+  currentUserEmail,
+  onLeaseSubmitted,
+  isLandlordView = false,
+  selectedNotice,
+  onDownload,
+  onSendInvoice
 }: PDFViewerProps) {
   const [scale, setScale] = useState(1)
   const [isMaximized, setIsMaximized] = useState(false)
@@ -122,6 +138,100 @@ export function PDFViewer({
     } catch (error) {
       console.error("Error sending filled PDF:", error)
       toast.error("Failed to send filled PDF")
+    } finally {
+      setUploadedFile(null)
+    }
+  }
+
+  const handleRenterSubmitLease = async () => {
+    if (!uploadedFile) {
+      toast.error("Please upload your filled lease PDF first")
+      return
+    }
+
+    if (!leaseAgreementId) {
+      toast.error("Lease agreement ID not found")
+      return
+    }
+
+    if (!currentUserEmail) {
+      toast.error("User email not found")
+      return
+    }
+
+    if (!landlordId || !propertyId) {
+      toast.error("Landlord or property information missing")
+      return
+    }
+
+    try {
+      console.log("Renter submitting filled lease:", uploadedFile.name, uploadedFile.size, "bytes")
+      
+      // Save the filled PDF to Firebase Storage
+      const filledPdfUrl = await saveFilledPDFToStorage(uploadedFile, currentUserEmail)
+      
+      // Update the lease agreement document with the new PDF URL and additional info
+      const leaseRef = doc(db, "filledLeases", leaseAgreementId)
+      await updateDoc(leaseRef, {
+        filledPdfUrl: filledPdfUrl,
+        renterCompletedAt: serverTimestamp(),
+        status: "renter_completed",
+        landlordId: landlordId,
+        propertyId: propertyId,
+        renterEmail: currentUserEmail,
+        updatedAt: serverTimestamp(),
+      })
+
+      // Mark any existing "lease_received" notifications as read to avoid duplicates
+      const noticesQuery = query(
+        collection(db, "notices"),
+        where("type", "==", "lease_received"),
+        where("leaseAgreementId", "==", leaseAgreementId),
+        where("renterId", "==", currentUserEmail)
+      )
+      const noticesSnapshot = await getDocs(noticesQuery)
+      
+      // Mark all existing lease_received notices as read
+      const updatePromises = noticesSnapshot.docs.map((doc: any) => 
+        updateDoc(doc.ref, { readAt: serverTimestamp() })
+      )
+      await Promise.all(updatePromises)
+
+      // Create a notice for the landlord
+      const landlordNoticeData = {
+        type: "lease_completed",
+        subject: "Lease Agreement Signed by Renter",
+        message: `The renter has completed and signed the lease agreement. Please review the completed document.`,
+        landlordId: landlordId,
+        propertyId: propertyId,
+        renterEmail: currentUserEmail,
+        leaseAgreementId: leaseAgreementId,
+        status: "unread",
+        priority: "high",
+        sentAt: serverTimestamp(),
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      }
+
+      console.log("Creating landlord notice with data:", landlordNoticeData)
+      
+      // Save the notice to the notices collection
+      const noticeRef = await addDoc(collection(db, "notices"), landlordNoticeData)
+      
+      console.log("Successfully created landlord notice with ID:", noticeRef.id)
+      
+      toast.success("Lease submitted successfully! Landlord has been notified.")
+      
+      if (onSubmit) {
+        onSubmit()
+      }
+      
+      if (onLeaseSubmitted) {
+        onLeaseSubmitted()
+      }
+    } catch (error) {
+      console.error("Error submitting lease:", error)
+      toast.error("Failed to submit lease")
     } finally {
       setUploadedFile(null)
     }
@@ -351,12 +461,28 @@ startxref
               <div className="space-y-4">
                 {/* Instructions */}
                 <div className="text-sm text-muted-foreground bg-blue-50 p-3 rounded-lg">
-                  <p className="font-medium mb-2">📝 How to save and send your filled PDF:</p>
+                  <p className="font-medium mb-2">
+                    {isRenterSubmission 
+                      ? "📝 How to submit your completed lease:"
+                      : "📝 How to save and send your filled PDF:"
+                    }
+                  </p>
                   <ol className="list-decimal list-inside space-y-1 text-xs">
-                    <li>Fill out the PDF form above</li>
-                    <li>Use Ctrl+S in the PDF viewer to save to your computer</li>
-                    <li>Upload the saved file using the "Upload Filled PDF" button below</li>
-                    <li>Enter the receiver email and click "Send Lease"</li>
+                    {isRenterSubmission ? (
+                      <>
+                        <li>Fill out the lease agreement above</li>
+                        <li>Use Ctrl+S in the PDF viewer to save to your computer</li>
+                        <li>Upload the saved file using the "Upload Completed Lease" button below</li>
+                        <li>Click "Submit Lease" to send to your landlord</li>
+                      </>
+                    ) : (
+                      <>
+                        <li>Fill out the PDF form above</li>
+                        <li>Use Ctrl+S in the PDF viewer to save to your computer</li>
+                        <li>Upload the saved file using the "Upload Filled PDF" button below</li>
+                        <li>Enter the receiver email and click "Send Lease"</li>
+                      </>
+                    )}
                   </ol>
                   {uploadedFile && (
                     <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded text-xs">
@@ -365,47 +491,115 @@ startxref
                   )}
                 </div>
                 
-              <div className="flex items-center gap-4">
-                <div className="flex-1">
-                  <Label htmlFor="receiver-email" className="text-sm">Receiver Email</Label>
-                  <Input
-                    id="receiver-email"
-                    type="email"
-                    placeholder="renter@example.com"
-                    value={receiverEmail}
-                      onChange={(e) => {
-                        onReceiverEmailChange?.(e.target.value)
-                      }}
-                    className="mt-1"
-                  />
-                </div>
-                <div className="flex gap-2">
-                    <div className="relative">
-                      <input
-                        type="file"
-                        accept=".pdf"
-                        onChange={handleFileUpload}
-                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                        disabled={isSavingToStorage}
+                {!isRenterSubmission && (
+                  <div className="flex items-center gap-4">
+                    <div className="flex-1">
+                      <Label htmlFor="receiver-email" className="text-sm">Receiver Email</Label>
+                      <Input
+                        id="receiver-email"
+                        type="email"
+                        placeholder="renter@example.com"
+                        value={receiverEmail}
+                        onChange={(e) => {
+                          onReceiverEmailChange?.(e.target.value)
+                        }}
+                        className="mt-1"
                       />
-                  <Button 
-                    variant="outline"
-                        disabled={isSavingToStorage}
-                    className="flex items-center gap-2"
-                  >
-                    <CheckCircle className="h-4 w-4" />
-                        {isSavingToStorage ? "Uploading..." : "Upload Filled PDF"}
-                  </Button>
                     </div>
+                    <div className="flex gap-2">
+                      <div className="relative">
+                        <input
+                          type="file"
+                          accept=".pdf"
+                          onChange={handleFileUpload}
+                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                          disabled={isSavingToStorage}
+                        />
+                        <Button 
+                          variant="outline"
+                          disabled={isSavingToStorage}
+                          className="flex items-center gap-2"
+                        >
+                          <CheckCircle className="h-4 w-4" />
+                          {isSavingToStorage ? "Uploading..." : "Upload Filled PDF"}
+                        </Button>
+                      </div>
+                      <Button 
+                        onClick={handleSendLease}
+                        disabled={isSaving || !receiverEmail.trim() || !uploadedFile}
+                        className="flex items-center gap-2"
+                      >
+                        <Send className="h-4 w-4" />
+                        {isSaving ? "Sending..." : uploadedFile ? `Send ${uploadedFile.name}` : "Send Lease"}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {isRenterSubmission && (
+                  <div className="flex items-center gap-4">
+                    <div className="flex gap-2 flex-1">
+                      <div className="relative">
+                        <input
+                          type="file"
+                          accept=".pdf"
+                          onChange={handleFileUpload}
+                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                          disabled={isSavingToStorage}
+                        />
+                        <Button 
+                          variant="outline"
+                          disabled={isSavingToStorage}
+                          className="flex items-center gap-2"
+                        >
+                          <CheckCircle className="h-4 w-4" />
+                          {isSavingToStorage ? "Uploading..." : "Upload Completed Lease"}
+                        </Button>
+                      </div>
+                      <Button 
+                        onClick={handleRenterSubmitLease}
+                        disabled={isSaving || !uploadedFile}
+                        className="flex items-center gap-2 bg-green-600 hover:bg-green-700"
+                      >
+                        <Send className="h-4 w-4" />
+                        {isSaving ? "Submitting..." : uploadedFile ? `Submit ${uploadedFile.name}` : "Submit Lease"}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Landlord View Actions */}
+          {isLandlordView && selectedNotice && (
+            <div className="p-4 border-t bg-white">
+              <div className="space-y-4">
+                <div className="text-sm text-muted-foreground bg-blue-50 p-3 rounded-lg">
+                  <p className="font-medium mb-2">📋 Lease Agreement Actions</p>
+                  <p className="text-xs">
+                    Property: {selectedNotice.propertyId} | Renter: {selectedNotice.renterEmail || selectedNotice.renterId}
+                  </p>
+                </div>
+                
+                <div className="flex items-center gap-4">
                   <Button 
-                      onClick={handleSendLease}
-                      disabled={isSaving || !receiverEmail.trim() || !uploadedFile}
+                    onClick={onDownload}
+                    variant="outline"
                     className="flex items-center gap-2"
                   >
-                    <Send className="h-4 w-4" />
-                      {isSaving ? "Sending..." : uploadedFile ? `Send ${uploadedFile.name}` : "Send Lease"}
+                    <Download className="h-4 w-4" />
+                    Download Lease
                   </Button>
-                  </div>
+                  {selectedNotice.type === "lease_completed" && (
+                    <Button 
+                      onClick={onSendInvoice}
+                      className="flex items-center gap-2 bg-green-600 hover:bg-green-700"
+                    >
+                      <Send className="h-4 w-4" />
+                      Send Invoice
+                    </Button>
+                  )}
                 </div>
               </div>
             </div>

@@ -14,12 +14,14 @@ import { storage, db } from "@/lib/firebase"
 import { applicationService } from "@/lib/services/application-service"
 import { ref as storageRef, uploadString, uploadBytes, getDownloadURL } from "firebase/storage"
 import { doc, getDoc } from "firebase/firestore"
+import { useToast } from "@/hooks/use-toast"
 
 export default function NewApplicationPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const invitationId = searchParams.get("invitationId")
   const { user } = useAuth()
+  const { toast } = useToast()
   const [invitation, setInvitation] = useState<any>(null)
   const [property, setProperty] = useState<any>(null)
   const [profile, setProfile] = useState<any>(null)
@@ -35,7 +37,7 @@ export default function NewApplicationPage() {
   const [visibleResidences, setVisibleResidences] = useState([0, 1]); // Track which residence fields are visible
   const signaturePadRefs = useRef<(HTMLCanvasElement | null)[]>([]);
   const [signatureLinks, setSignatureLinks] = useState<string[]>([]); // Store signing links for sharing
-  const [signatureStatuses, setSignatureStatuses] = useState<{ [key: number]: 'pending' | 'completed' }>({}); // Track signature status
+  const [signatureStatuses, setSignatureStatuses] = useState<{ [key: number]: 'pending' | 'completed' | 'drawn' }>({}); // Track signature status
   const [saving, setSaving] = useState(false); // Track save status
   const [lastSaved, setLastSaved] = useState<Date | null>(null); // Track last save time
   const [checkingSignatures, setCheckingSignatures] = useState(false); // Track signature check status
@@ -77,7 +79,7 @@ export default function NewApplicationPage() {
   };
 
   // Robust pointer event signature pad setup
-  function setupSignaturePad(canvas: HTMLCanvasElement | null) {
+  function setupSignaturePad(canvas: HTMLCanvasElement | null, index: number) {
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
@@ -106,6 +108,15 @@ export default function NewApplicationPage() {
     const endDraw = (e: PointerEvent) => {
       e.preventDefault();
       drawing = false;
+      // Check if there's actual drawing and update signature status
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const hasDrawing = imageData.data.some(pixel => pixel !== 0);
+      if (hasDrawing) {
+        setSignatureStatuses(prev => ({
+          ...prev,
+          [index]: 'drawn'
+        }));
+      }
     };
     canvas.addEventListener("pointerdown", startDraw);
     canvas.addEventListener("pointermove", draw);
@@ -233,6 +244,52 @@ export default function NewApplicationPage() {
     console.log('Generated signing link:', signingUrl);
   };
 
+  const saveSignature = async (index: number) => {
+    if (!invitationId) return;
+    
+    const canvas = signaturePadRefs.current[index];
+    if (!canvas) return;
+    
+    // Get the signature data
+    const dataUrl = canvas.toDataURL("image/png");
+    
+    // Check if canvas has any drawing
+    const ctx = canvas.getContext("2d");
+    const imageData = ctx?.getImageData(0, 0, canvas.width, canvas.height);
+    const hasDrawing = imageData && imageData.data.some(pixel => pixel !== 0);
+    
+    if (!hasDrawing) {
+      alert("Please draw a signature before saving.");
+      return;
+    }
+    
+    try {
+      // Save the signature to the application document
+      const applicationData = {
+        [`signatures.${index}`]: dataUrl,
+        [`signatureStatuses.${index}`]: 'completed',
+        lastSaved: new Date(),
+      };
+      
+      await applicationService.saveIncompleteApplication(invitationId, applicationData);
+      
+      // Update local state
+      setSavedSignatures(prev => ({
+        ...prev,
+        [index]: dataUrl
+      }));
+      setSignatureStatuses(prev => ({
+        ...prev,
+        [index]: 'completed'
+      }));
+      
+      alert(`Signature ${index + 1} saved successfully!`);
+    } catch (error) {
+      console.error("Error saving signature:", error);
+      alert("Failed to save signature. Please try again.");
+    }
+  };
+
   useEffect(() => {
     async function fetchData() {
       setLoading(true)
@@ -329,7 +386,7 @@ export default function NewApplicationPage() {
                 const signatureIndex = parseInt(idx);
                 const signatureData = data.signatures[signatureIndex];
                 if (signatureData) {
-                  console.log(`Loading signature ${signatureIndex}`);
+                  console.log(`Loading signature ${signatureIndex}:`, signatureData.substring(0, 50) + '...');
                   setSavedSignatures(prev => ({
                     ...prev,
                     [signatureIndex]: signatureData
@@ -369,49 +426,9 @@ export default function NewApplicationPage() {
 
     applicants.forEach((_, i) => {
       const canvas = signaturePadRefs.current[i];
-      if (!canvas) return;
-      const ctx = canvas.getContext("2d");
-      let drawing = false;
-      let lastX = 0;
-      let lastY = 0;
-      const getXY = (e: MouseEvent | TouchEvent) => {
-        const rect = canvas.getBoundingClientRect();
-        if ('touches' in e && e.touches.length > 0) {
-          return [e.touches[0].clientX - rect.left, e.touches[0].clientY - rect.top];
-        }
-        // @ts-ignore
-        return [e.clientX - rect.left, e.clientY - rect.top];
-      };
-      const startDraw = (e: MouseEvent | TouchEvent) => {
-        e.preventDefault();
-        drawing = true;
-        [lastX, lastY] = getXY(e);
-        if (ctx) {
-        ctx.beginPath();
-        ctx.moveTo(lastX, lastY);
-        }
-      };
-      const draw = (e: MouseEvent | TouchEvent) => {
-        if (!drawing) return;
-        e.preventDefault();
-        const [x, y] = getXY(e);
-        if (ctx) {
-        ctx.lineTo(x, y);
-        ctx.stroke();
-        }
-        [lastX, lastY] = [x, y];
-      };
-      const endDraw = (e: MouseEvent | TouchEvent) => {
-        e.preventDefault();
-        drawing = false;
-      };
-      canvas.addEventListener("mousedown", startDraw);
-      canvas.addEventListener("mousemove", draw);
-      canvas.addEventListener("mouseup", endDraw);
-      canvas.addEventListener("mouseleave", endDraw);
-      canvas.addEventListener("touchstart", startDraw);
-      canvas.addEventListener("touchmove", draw);
-      canvas.addEventListener("touchend", endDraw);
+      if (canvas) {
+        setupSignaturePad(canvas, i);
+      }
     });
   }, [applicants]);
 
@@ -533,36 +550,67 @@ export default function NewApplicationPage() {
       attachmentUrls.push(url);
     }
 
-      // Get signatures from canvas (for local signatures) and check for external signatures
+      // Check if all required signatures are completed
+      let allSignaturesComplete = true;
       const signatures = [];
-      for (let i = 0; i < signaturePadRefs.current.length; i++) {
-        const canvas = signaturePadRefs.current[i];
-        if (canvas) {
-          // Check if there's an external signature for this applicant
-          if (invitationId) {
-            const applicationDoc = await getDoc(doc(db, "applications", invitationId));
-            if (applicationDoc.exists()) {
-              const data = applicationDoc.data();
-              if (data.signatures && data.signatures[i]) {
-                // Use external signature if available
-                signatures.push(data.signatures[i]);
-              } else {
-                // Use local signature if drawn
+      
+      console.log("Checking signatures for submission...");
+      console.log("Current signature statuses:", signatureStatuses);
+      console.log("Saved signatures:", savedSignatures);
+      
+      // First, check if we have saved signatures in the database
+      if (invitationId) {
+        const applicationDoc = await getDoc(doc(db, "applications", invitationId));
+        if (applicationDoc.exists()) {
+          const data = applicationDoc.data();
+          console.log("Application data from database:", data);
+          
+          // Check each applicant's signature status
+          for (let i = 0; i < applicants.length; i++) {
+            console.log(`Checking signature ${i}:`, {
+              status: data.signatureStatuses?.[i],
+              hasSignature: !!data.signatures?.[i],
+              localStatus: signatureStatuses[i],
+              savedSignature: !!savedSignatures[i]
+            });
+            
+            // Check if signature is completed in database OR in local state
+            if ((data.signatureStatuses && data.signatureStatuses[i] === 'completed') || 
+                (signatureStatuses[i] === 'completed') ||
+                (savedSignatures[i])) {
+              // Signature is completed
+              console.log(`Signature ${i} is completed`);
+              signatures.push(data.signatures?.[i] || savedSignatures[i] || 'completed');
+            } else {
+              // Check if there's a local signature drawn
+              const canvas = signaturePadRefs.current[i];
+              if (canvas) {
                 const dataUrl = canvas.toDataURL("image/png");
-                // Check if canvas has any drawing (not just blank)
                 const ctx = canvas.getContext("2d");
                 const imageData = ctx?.getImageData(0, 0, canvas.width, canvas.height);
                 const hasDrawing = imageData && imageData.data.some(pixel => pixel !== 0);
                 
                 if (hasDrawing) {
+                  console.log(`Signature ${i} has local drawing`);
                   signatures.push(dataUrl);
                 } else {
-                  // No signature drawn for this applicant
+                  console.log(`Signature ${i} is missing`);
                   signatures.push(null);
+                  allSignaturesComplete = false;
                 }
+              } else {
+                console.log(`Signature ${i} has no canvas`);
+                signatures.push(null);
+                allSignaturesComplete = false;
               }
-            } else {
-              // Use local signature if drawn
+            }
+          }
+        } else {
+          console.log("No application document exists, checking local signatures");
+          // No application document exists, check local signatures
+          for (let i = 0; i < applicants.length; i++) {
+            const canvas = signaturePadRefs.current[i];
+            if (canvas) {
               const dataUrl = canvas.toDataURL("image/png");
               const ctx = canvas.getContext("2d");
               const imageData = ctx?.getImageData(0, 0, canvas.width, canvas.height);
@@ -572,10 +620,20 @@ export default function NewApplicationPage() {
                 signatures.push(dataUrl);
               } else {
                 signatures.push(null);
+                allSignaturesComplete = false;
               }
+            } else {
+              signatures.push(null);
+              allSignaturesComplete = false;
             }
-          } else {
-            // Use local signature if drawn
+          }
+        }
+      } else {
+        console.log("No invitation ID, checking local signatures only");
+        // No invitation ID, check local signatures only
+        for (let i = 0; i < applicants.length; i++) {
+          const canvas = signaturePadRefs.current[i];
+          if (canvas) {
             const dataUrl = canvas.toDataURL("image/png");
             const ctx = canvas.getContext("2d");
             const imageData = ctx?.getImageData(0, 0, canvas.width, canvas.height);
@@ -585,16 +643,21 @@ export default function NewApplicationPage() {
               signatures.push(dataUrl);
             } else {
               signatures.push(null);
+              allSignaturesComplete = false;
             }
+          } else {
+            signatures.push(null);
+            allSignaturesComplete = false;
           }
-        } else {
-          signatures.push(null);
         }
       }
 
-      // Check if all required signatures are provided
-      const missingSignatures = signatures.filter((sig, index) => !sig).length;
-      if (missingSignatures > 0) {
+      console.log("Final signature check result:", {
+        allSignaturesComplete,
+        signatures: signatures.map((sig, i) => ({ index: i, hasSignature: !!sig }))
+      });
+
+      if (!allSignaturesComplete) {
         alert(`Please provide signatures for all ${applicants.length} applicants before submitting.`);
         setSubmitting(false);
         return;
@@ -642,6 +705,14 @@ export default function NewApplicationPage() {
       };
 
       await applicationService.createApplication(applicationData);
+      
+      // Show success toast
+      toast({
+        title: "Application Submitted Successfully!",
+        description: "Your rental application has been submitted and the landlord has been notified.",
+        duration: 5000,
+      });
+      
       router.push("/renter/applications");
     } catch (error) {
       console.error("Error submitting application:", error);
@@ -845,6 +916,21 @@ export default function NewApplicationPage() {
               <RefreshCw className={`h-4 w-4 ${checkingSignatures ? 'animate-spin' : ''}`} />
               {checkingSignatures ? "Checking..." : "Refresh All Signatures"}
             </Button>
+            <Button 
+              type="button" 
+              size="sm" 
+              variant="outline" 
+              onClick={() => {
+                console.log("Debug - Current state:", {
+                  signatureStatuses,
+                  savedSignatures,
+                  applicants: applicants.length
+                });
+              }}
+              className="flex items-center gap-1"
+            >
+              Debug State
+            </Button>
           </div>
 
                       {applicants.map((a, i) => {
@@ -858,7 +944,7 @@ export default function NewApplicationPage() {
                   <div className="border rounded p-2 bg-green-50">
                     <div className="flex items-center gap-2 mb-2">
                       <CheckCircle className="h-4 w-4 text-green-600" />
-                      <span className="text-sm font-medium text-green-800">Signature Completed (External)</span>
+                      <span className="text-sm font-medium text-green-800">Signature Completed</span>
                     </div>
                     {savedSignatures[i] && (
                       <img 
@@ -869,12 +955,27 @@ export default function NewApplicationPage() {
                       />
                     )}
                   </div>
+                ) : signatureStatuses[i] === 'drawn' ? (
+                  <div className="border rounded p-2 bg-yellow-50">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-sm font-medium text-yellow-800">Signature Drawn - Ready to Save</span>
+                    </div>
+                    <canvas
+                      ref={el => {
+                        signaturePadRefs.current[i] = el;
+                        if (el) setupSignaturePad(el, i);
+                      }}
+                      width={300}
+                      height={80}
+                      style={{ border: '1px solid #ccc', background: '#fff', display: 'block' }}
+                    />
+                  </div>
                 ) : (
                   <div>
                     <canvas
                       ref={el => {
                         signaturePadRefs.current[i] = el;
-                        if (el) setupSignaturePad(el);
+                        if (el) setupSignaturePad(el, i);
                       }}
                       width={300}
                       height={80}
@@ -900,6 +1001,17 @@ export default function NewApplicationPage() {
                         <Link className="h-4 w-4 mr-1" />
                         Generate Signing Link
                       </Button>
+                      {signatureStatuses[i] === 'drawn' && (
+                        <Button 
+                          type="button" 
+                          size="sm" 
+                          variant="default"
+                          onClick={() => saveSignature(i)}
+                          className="bg-green-600 hover:bg-green-700"
+                        >
+                          Save Signature
+                        </Button>
+                      )}
                     </>
                   )}
                   <Button 
@@ -950,7 +1062,9 @@ export default function NewApplicationPage() {
                 
                 <div className="text-xs text-muted-foreground mb-2">
                   {isCompleted 
-                    ? "Signature has been completed via external link"
+                    ? "Signature has been completed and saved"
+                    : signatureStatuses[i] === 'drawn'
+                    ? "Signature has been drawn. Click 'Save Signature' to save it permanently."
                     : "You can either draw your signature directly above, or generate a signing link to share with others"
                   }
                 </div>

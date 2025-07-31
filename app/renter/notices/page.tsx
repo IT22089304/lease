@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Eye, Calendar, AlertTriangle, CheckCircle, FileText, Home, Bed, Bath, Square } from "lucide-react"
+import { Eye, Calendar, AlertTriangle, CheckCircle, FileText, Home, Bed, Bath, Square, DollarSign } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -17,6 +17,9 @@ import { leaseService } from "@/lib/services/lease-service"
 import type { Lease } from "@/types"
 import { doc, getDoc } from "firebase/firestore"
 import { db } from "@/lib/firebase"
+import { invoiceService } from "@/lib/services/invoice-service"
+import { InvoicePayment } from "@/components/renter/invoice-payment"
+import { toast } from "sonner"
 
 export default function RenterNoticesPage() {
   const { user } = useAuth()
@@ -32,17 +35,21 @@ export default function RenterNoticesPage() {
   const [selectedPdfUrl, setSelectedPdfUrl] = useState("");
   const [selectedPdfTitle, setSelectedPdfTitle] = useState("");
   const [propertyDetails, setPropertyDetails] = useState<any>(null);
+  const [selectedLeaseAgreementId, setSelectedLeaseAgreementId] = useState<string>("")
+  const [selectedInvoice, setSelectedInvoice] = useState<any>(null)
+  const [isInvoicePopupOpen, setIsInvoicePopupOpen] = useState(false)
+
+  const refreshData = async () => {
+    if (!user?.email) return;
+    const realNotices = await noticeService.getRenterNotices(user.email)
+    setNotices(realNotices)
+    const invs = await invitationService.getInvitationsForEmail(user.email)
+    setInvitations(invs)
+  }
 
   useEffect(() => {
     if (!user || !user.email || !user.id) return;
-    const fetchData = async () => {
-      if (!user?.email) return;
-      const realNotices = await noticeService.getRenterNotices(user.email)
-      setNotices(realNotices)
-      const invs = await invitationService.getInvitationsForEmail(user.email)
-      setInvitations(invs)
-    }
-    fetchData()
+    refreshData()
   }, [user])
 
   useEffect(() => {
@@ -94,6 +101,8 @@ export default function RenterNoticesPage() {
       utility_shutdown: "Utility Shutdown",
       custom: "Notice",
       lease_received: "Lease Agreement Received",
+      lease_completed: "Lease Agreement Completed",
+      invoice_sent: "Invoice Received",
     }
     return labels[type] || type
   }
@@ -113,12 +122,14 @@ export default function RenterNoticesPage() {
       utility_shutdown: "destructive",
       custom: "outline",
       lease_received: "default",
+      lease_completed: "default",
+      invoice_sent: "default",
     }
     return variants[type] || "outline"
   }
 
   const getUrgencyLevel = (type: Notice["type"]) => {
-    const urgentTypes = ["eviction", "late_rent", "lease_violation", "utility_shutdown"]
+    const urgentTypes = ["eviction", "late_rent", "lease_violation", "utility_shutdown", "lease_completed"]
     return urgentTypes.includes(type) ? "high" : "normal"
   }
 
@@ -164,6 +175,8 @@ export default function RenterNoticesPage() {
           if (pdfUrl) {
             setSelectedPdfUrl(pdfUrl);
             setSelectedPdfTitle(leaseData.templateName || "Lease Agreement");
+            setSelectedLeaseAgreementId(notice.leaseAgreementId);
+            setSelectedNotice(notice); // Store the notice for property/landlord info
             setIsPdfViewerOpen(true);
             
             // Mark notice as read
@@ -195,6 +208,50 @@ export default function RenterNoticesPage() {
       }
     }
   };
+
+  const handleLeaseSubmitted = () => {
+    setIsPdfViewerOpen(false);
+    setSelectedPdfUrl("");
+    setSelectedPdfTitle("");
+    setSelectedLeaseAgreementId("");
+    setSelectedNotice(null);
+    // Refresh the page to show updated notices
+    window.location.reload();
+  };
+
+  const handleNoticeClick = (notice: Notice) => {
+    if (notice.type === "invoice_sent") {
+      // Fetch invoice details and show popup
+      fetchInvoiceDetails(notice);
+    } else if (notice.type === "lease_received") {
+      // Handle lease notices
+      handleViewLease(notice);
+    } else {
+      // Handle other notices
+      setSelectedNotice(notice);
+    }
+  }
+
+  const fetchInvoiceDetails = async (notice: Notice) => {
+    if (notice.invoiceId) {
+      try {
+        const invoice = await invoiceService.getInvoice(notice.invoiceId);
+        if (invoice) {
+          setSelectedInvoice(invoice);
+          setIsInvoicePopupOpen(true);
+        }
+      } catch (error) {
+        console.error("Error fetching invoice details:", error);
+        // Fallback to showing notice data
+        setSelectedInvoice(notice);
+        setIsInvoicePopupOpen(true);
+      }
+    } else {
+      // Fallback to showing notice data
+      setSelectedInvoice(notice);
+      setIsInvoicePopupOpen(true);
+    }
+  }
 
   // Combine notices and invitations for display
   const allItems = [
@@ -335,6 +392,16 @@ export default function RenterNoticesPage() {
                           View Lease
                         </Button>
                       )}
+                      {item.type === "invoice_sent" && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleNoticeClick(item)}
+                        >
+                          <DollarSign className="h-4 w-4 mr-2" />
+                          View Invoice
+                        </Button>
+                      )}
                       <Button
                         variant="outline"
                         size="sm"
@@ -347,9 +414,13 @@ export default function RenterNoticesPage() {
                         variant="outline"
                         size="sm"
                         onClick={() => {
-                          setSelectedNotice(item)
-                          if (!item.readAt) {
-                            markNoticeAsRead(item.id)
+                          if (item.type === "invoice_sent") {
+                            handleNoticeClick(item);
+                          } else {
+                            setSelectedNotice(item);
+                            if (!item.readAt) {
+                              markNoticeAsRead(item.id);
+                            }
                           }
                         }}
                       >
@@ -393,6 +464,127 @@ export default function RenterNoticesPage() {
         </TabsContent>
       </Tabs>
 
+      {/* Invoice Popup */}
+      {selectedInvoice && isInvoicePopupOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 overflow-y-auto">
+          <div className="bg-white rounded-lg p-6 max-w-2xl w-full mx-4 my-8 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h1 className="text-2xl font-bold">Invoice Received</h1>
+                <p className="text-sm text-muted-foreground">
+                  Sent on {new Date(selectedInvoice.sentAt).toLocaleDateString()}
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setIsInvoicePopupOpen(false);
+                  setSelectedInvoice(null);
+                }}
+              >
+                ×
+              </Button>
+            </div>
+
+            <div className="space-y-6">
+              {/* Invoice Summary */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Invoice Summary</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center">
+                      <span>Monthly Rent:</span>
+                      <span>${selectedInvoice.propertyDetails?.monthlyRent?.toLocaleString() || 0}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span>Security Deposit:</span>
+                      <span>${selectedInvoice.propertyDetails?.securityDeposit?.toLocaleString() || 0}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span>Application Fee:</span>
+                      <span>${selectedInvoice.propertyDetails?.applicationFee?.toLocaleString() || 0}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span>Pet Deposit:</span>
+                      <span>${selectedInvoice.propertyDetails?.petPolicy?.fee?.toLocaleString() || 0}</span>
+                    </div>
+                    <div className="border-t pt-3">
+                      <div className="flex justify-between items-center text-lg font-semibold">
+                        <span>Total Amount:</span>
+                        <span className="text-primary">${selectedInvoice.amount?.toLocaleString() || 0}</span>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Property Information */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Property Information</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    <div>
+                      <span className="font-medium">Address:</span>
+                      <p className="text-sm text-muted-foreground">
+                        {selectedInvoice.propertyDetails?.address?.street}
+                        {selectedInvoice.propertyDetails?.address?.unit && `, Unit ${selectedInvoice.propertyDetails.address.unit}`}
+                        <br />
+                        {selectedInvoice.propertyDetails?.address?.city}, {selectedInvoice.propertyDetails?.address?.state} {selectedInvoice.propertyDetails?.address?.postalCode}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="font-medium">Property Type:</span>
+                      <p className="text-sm text-muted-foreground capitalize">
+                        {selectedInvoice.propertyDetails?.type || "N/A"}
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Additional Notes */}
+              {selectedInvoice.notes && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Additional Notes</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm text-muted-foreground">{selectedInvoice.notes}</p>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Payment Actions */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Payment Options</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <InvoicePayment 
+                    invoice={selectedInvoice}
+                    onSuccess={() => {
+                      setIsInvoicePopupOpen(false);
+                      setSelectedInvoice(null);
+                      // Refresh notices to show updated status
+                      refreshData();
+                    }}
+                    onCancel={() => {
+                      setIsInvoicePopupOpen(false);
+                      setSelectedInvoice(null);
+                    }}
+                  />
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Notice Viewer Dialog */}
       {selectedNotice && (
         <NoticeViewer
@@ -409,10 +601,14 @@ export default function RenterNoticesPage() {
         pdfUrl={selectedPdfUrl}
         title={selectedPdfTitle}
         isFilling={true}
+        isRenterSubmission={true}
         receiverEmail={user?.email || ""}
         onReceiverEmailChange={() => {}}
-        propertyId=""
-        landlordId=""
+        propertyId={selectedNotice?.propertyId || ""}
+        landlordId={selectedNotice?.landlordId || ""}
+        leaseAgreementId={selectedLeaseAgreementId}
+        currentUserEmail={user?.email || ""}
+        onSubmit={handleLeaseSubmitted}
       />
 
       {/* Property Details Dialog */}

@@ -10,6 +10,7 @@ import { Progress } from "@/components/ui/progress"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { PaymentDialog } from "@/components/renter/payment-dialog"
 import { NoticeViewer } from "@/components/renter/notice-viewer"
+import { PDFViewer } from "@/components/ui/pdf-viewer"
 import { useAuth } from "@/lib/auth"
 import type { Lease, RentPayment, RenterProfile, Notice } from "@/types"
 import { noticeService } from "@/lib/services/notice-service"
@@ -56,6 +57,10 @@ export default function RenterDashboardPage() {
   const [landlordName, setLandlordName] = useState<string>("");
   const [propertyAddress, setPropertyAddress] = useState<string>("");
   const [securityDeposits, setSecurityDeposits] = useState<any[]>([]);
+  const [isPdfViewerOpen, setIsPdfViewerOpen] = useState(false);
+  const [selectedPdfUrl, setSelectedPdfUrl] = useState("");
+  const [selectedPdfTitle, setSelectedPdfTitle] = useState("");
+  const [selectedLeaseAgreementId, setSelectedLeaseAgreementId] = useState<string>("");
 
   useEffect(() => {
     setIsClient(true)
@@ -265,6 +270,60 @@ export default function RenterDashboardPage() {
       status: "active",
     });
     window.location.reload();
+  };
+
+  const handleViewLease = async (notice: Notice) => {
+    if (notice.type === "lease_received" && notice.leaseAgreementId) {
+      try {
+        // Fetch the lease agreement document to get the PDF URL
+        const leaseRef = doc(db, "filledLeases", notice.leaseAgreementId);
+        const leaseSnap = await getDoc(leaseRef);
+        
+        if (leaseSnap.exists()) {
+          const leaseData = leaseSnap.data();
+          const pdfUrl = leaseData.filledPdfUrl || leaseData.originalTemplateUrl;
+          
+          if (pdfUrl) {
+            setSelectedPdfUrl(pdfUrl);
+            setSelectedPdfTitle(leaseData.templateName || "Lease Agreement");
+            setSelectedLeaseAgreementId(notice.leaseAgreementId);
+            setSelectedNotice(notice); // Store the notice for property/landlord info
+            setIsPdfViewerOpen(true);
+            
+            // Mark notice as read
+            if (!notice.readAt) {
+              await markNoticeAsRead(notice.id);
+            }
+          } else {
+            console.error("No PDF URL found in lease agreement");
+          }
+        } else {
+          console.error("Lease agreement not found");
+        }
+      } catch (error) {
+        console.error("Error opening lease PDF:", error);
+      }
+    }
+  };
+
+  const handleLeaseSubmitted = () => {
+    setIsPdfViewerOpen(false);
+    setSelectedPdfUrl("");
+    setSelectedPdfTitle("");
+    setSelectedLeaseAgreementId("");
+    setSelectedNotice(null);
+    // Refresh the page to show updated notices
+    window.location.reload();
+  };
+
+  const handleNoticeClick = (item: any) => {
+    // If it's a lease notice, open the PDF viewer
+    if (item.type === "lease_received" && item.leaseAgreementId) {
+      handleViewLease(item);
+    } else {
+      // For other notices, navigate to the notices page
+      router.push("/renter/notices");
+    }
   };
 
   if (!isClient) {
@@ -695,7 +754,7 @@ export default function RenterDashboardPage() {
                   <div
                     key={item.id}
                     className="p-3 border rounded-lg cursor-pointer hover:bg-muted/30"
-                    onClick={() => router.push("/renter/notices")}
+                    onClick={() => handleNoticeClick(item)}
                   >
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
@@ -704,6 +763,11 @@ export default function RenterDashboardPage() {
                         {!item.readAt && (
                           <Badge variant="destructive" className="text-xs">
                             New
+                          </Badge>
+                        )}
+                        {item.type === "lease_received" && (
+                          <Badge variant="default" className="text-xs">
+                            Lease Agreement
                           </Badge>
                         )}
                       </div>
@@ -718,6 +782,11 @@ export default function RenterDashboardPage() {
                       <p className="text-xs text-muted-foreground mt-2">
                         {item.sentAt ? new Date(item.sentAt).toLocaleDateString() : item.invitedAt ? new Date(item.invitedAt).toLocaleDateString() : ""}
                       </p>
+                      {item.type === "lease_received" && (
+                        <p className="text-xs text-blue-600 mt-1 font-medium">
+                          Click to view and sign lease agreement
+                        </p>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -734,6 +803,24 @@ export default function RenterDashboardPage() {
       {/* Notice Viewer Dialog */}
       {selectedNotice && (
         <NoticeViewer notice={selectedNotice} isOpen={!!selectedNotice} onClose={() => setSelectedNotice(null)} />
+      )}
+      {/* PDF Viewer Dialog */}
+      {isPdfViewerOpen && selectedPdfUrl && (
+        <PDFViewer
+          isOpen={isPdfViewerOpen}
+          onClose={() => setIsPdfViewerOpen(false)}
+          pdfUrl={selectedPdfUrl}
+          title={selectedPdfTitle}
+          isFilling={true}
+          isRenterSubmission={true}
+          receiverEmail={user?.email || ""}
+          onReceiverEmailChange={() => {}}
+          propertyId={selectedNotice?.propertyId || ""}
+          landlordId={selectedNotice?.landlordId || ""}
+          leaseAgreementId={selectedLeaseAgreementId}
+          currentUserEmail={user?.email || ""}
+          onLeaseSubmitted={handleLeaseSubmitted}
+        />
       )}
     </div>
   )

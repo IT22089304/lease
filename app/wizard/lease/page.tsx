@@ -5,9 +5,12 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { leaseService } from "@/lib/services/lease-service"
 import { propertyService } from "@/lib/services/property-service"
+import { noticeService } from "@/lib/services/notice-service"
 import { PDFTemplateSelector } from "@/components/lease/pdf-template-selector"
 import { TemplateMeta } from "@/lib/services/template-service"
 import { toast } from "sonner"
+import { collection, addDoc, serverTimestamp } from "firebase/firestore"
+import { db } from "@/lib/firebase"
 
 export default function LeaseWizardPage() {
   const router = useRouter()
@@ -35,23 +38,23 @@ export default function LeaseWizardPage() {
 
   const handleSubmit = async (e: any) => {
     e.preventDefault()
-    if (!propertyId || !selectedTemplate) {
-      toast.error("Please select a PDF template")
+    if (!propertyId || !selectedTemplate || !receiverEmail.trim()) {
+      toast.error("Please select a PDF template and enter receiver email")
       return
     }
     try {
       setLoading(true)
-      await leaseService.createLease({
+      
+      // Create the lease
+      const leaseId = await leaseService.createLease({
         propertyId,
         landlordId: property.landlordId,
-        renterId: "", // Will be filled later
+        renterId: receiverEmail.trim(),
         startDate: new Date(),
         endDate: new Date(),
         monthlyRent: 0,
         securityDeposit: 0,
         status: "draft",
-        templateId: selectedTemplate.id,
-        templateUrl: selectedTemplate.url,
         leaseTerms: {
           petPolicy: false,
           smokingAllowed: false,
@@ -64,12 +67,39 @@ export default function LeaseWizardPage() {
           coSignerRequired: false,
           landlordSigned: false,
         },
-        createdAt: new Date(),
-        updatedAt: new Date(),
       })
-      toast.success("Lease template selected successfully")
+
+      // Create a filledLeases record
+      const filledLeaseData = {
+        originalTemplateUrl: selectedTemplate.url,
+        filledPdfUrl: null, // Will be filled when renter completes it
+        receiverEmail: receiverEmail.trim(),
+        templateName: selectedTemplate.name,
+        status: "pending",
+        leaseId: leaseId,
+        propertyId: propertyId,
+        landlordId: property.landlordId,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      }
+      
+      const filledLeaseRef = await addDoc(collection(db, "filledLeases"), filledLeaseData)
+
+      // Create a notice for the renter
+      await noticeService.createNotice({
+        type: "lease_received",
+        subject: "New Lease Agreement Received",
+        message: `You have received a new lease agreement for the property. Please review and sign the document at your earliest convenience.`,
+        landlordId: property.landlordId,
+        propertyId: propertyId,
+        renterId: receiverEmail.trim(),
+        leaseAgreementId: filledLeaseRef.id,
+      })
+
+      toast.success("Lease created and notice sent to renter successfully")
       router.push(`/properties/${propertyId}`)
     } catch (error) {
+      console.error("Error creating lease:", error)
       toast.error("Failed to create lease")
     } finally {
       setLoading(false)
@@ -102,11 +132,11 @@ export default function LeaseWizardPage() {
           <div className="flex justify-center">
             <Button 
               onClick={handleSubmit} 
-              disabled={loading || !selectedTemplate} 
+              disabled={loading || !selectedTemplate || !receiverEmail.trim()} 
               size="lg"
               className="px-8 py-3"
             >
-              {loading ? "Creating..." : "Create Lease with Selected Template"}
+              {loading ? "Creating..." : "Create Lease and Send to Renter"}
             </Button>
           </div>
         </div>

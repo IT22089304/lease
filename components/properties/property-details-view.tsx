@@ -163,13 +163,36 @@ export function PropertyDetailsView({ property, actionButton, tabs, activeTab, s
                   <CardTitle>Rent Information</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-center">
-                    {property.monthlyRent !== undefined ? (
-                      <p className="text-3xl font-bold">${property.monthlyRent.toLocaleString()}</p>
-                    ) : (
-                      <p className="text-3xl font-bold text-muted-foreground">No rent info</p>
-                    )}
-                    <p className="text-muted-foreground">per month</p>
+                  <div className="space-y-4">
+                    <div className="text-center">
+                      {property.monthlyRent !== undefined ? (
+                        <p className="text-3xl font-bold">${property.monthlyRent.toLocaleString()}</p>
+                      ) : (
+                        <p className="text-3xl font-bold text-muted-foreground">No rent info</p>
+                      )}
+                      <p className="text-muted-foreground">per month</p>
+                    </div>
+                    
+                    <div className="space-y-2">
+                      {property.securityDeposit && (
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-muted-foreground">Security Deposit:</span>
+                          <span className="font-medium">${property.securityDeposit.toLocaleString()}</span>
+                        </div>
+                      )}
+                      {property.applicationFee && (
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-muted-foreground">Application Fee:</span>
+                          <span className="font-medium">${property.applicationFee.toLocaleString()}</span>
+                        </div>
+                      )}
+                      {property.petPolicy?.fee && (
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-muted-foreground">Pet Deposit:</span>
+                          <span className="font-medium">${property.petPolicy.fee.toLocaleString()}</span>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </CardContent>
               </Card>
