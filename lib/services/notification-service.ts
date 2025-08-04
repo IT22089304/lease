@@ -4,7 +4,7 @@ import { db } from "../firebase"
 export interface Notification {
   id: string
   landlordId: string
-  type: "application_submitted" | "application_approved" | "application_rejected" | "invitation_sent" | "tenant_moved_in" | "payment_received" | "lease_completed" | "invoice_sent"
+  type: "application_submitted" | "application_approved" | "application_rejected" | "invitation_sent" | "tenant_moved_in" | "payment_received" | "lease_completed" | "lease_received" | "invoice_sent"
   title: string
   message: string
   data?: any
@@ -125,6 +125,13 @@ export const notificationService = {
           params: { tab: "lease" },
           action: "view_lease_notifications"
         }
+      case "lease_received":
+        return {
+          type: "page" as const,
+          path: "/notifications",
+          params: { tab: "lease" },
+          action: "view_lease_notifications"
+        }
       case "invoice_sent":
         return {
           type: "page" as const,
@@ -229,18 +236,41 @@ export const notificationService = {
   },
 
   // Create lease completed notification
-  async notifyLeaseCompleted(landlordId: string, propertyId: string, renterEmail: string) {
+  async notifyLeaseCompleted(landlordId: string, propertyId: string, renterEmail: string, leaseAgreementId?: string) {
     const notification: Omit<Notification, "id" | "createdAt"> = {
       landlordId,
       type: "lease_completed",
       title: "Lease Agreement Completed",
-      message: `A lease agreement has been completed for your property.`,
+      message: `A lease agreement has been completed for your property. Click to view the signed document.`,
       data: {
         propertyId,
         renterEmail,
+        leaseAgreementId,
       },
       navigation: this.getNotificationNavigation("lease_completed", {
-        propertyId
+        propertyId,
+        leaseAgreementId
+      })
+    }
+    
+    return await this.createNotification(notification)
+  },
+
+  // Create lease received notification (when renter submits completed lease)
+  async notifyLeaseReceived(landlordId: string, propertyId: string, renterEmail: string, leaseAgreementId: string) {
+    const notification: Omit<Notification, "id" | "createdAt"> = {
+      landlordId,
+      type: "lease_received",
+      title: "Lease Agreement Received",
+      message: `A tenant has submitted a completed lease agreement for your property. Click to review and sign.`,
+      data: {
+        propertyId,
+        renterEmail,
+        leaseAgreementId,
+      },
+      navigation: this.getNotificationNavigation("lease_received", {
+        propertyId,
+        leaseAgreementId
       })
     }
     

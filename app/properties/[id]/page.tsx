@@ -23,35 +23,40 @@ export default function PropertyDetailsPage() {
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState("details")
 
-  useEffect(() => {
-    async function fetchData() {
-      if (!params.id || !user) return
+  const fetchData = async () => {
+    if (!params.id || !user) return
 
-      try {
-        setLoading(true)
-        
-        // Fetch property details
-        const propertyData = await propertyService.getProperty(params.id as string)
-        setProperty(propertyData)
+    try {
+      setLoading(true)
+      
+      // Fetch property details
+      const propertyData = await propertyService.getProperty(params.id as string)
+      setProperty(propertyData)
 
-        // Fetch applications for this property
-        const propertyApplications = await applicationService.getApplicationsByProperty(params.id as string)
-        setApplications(propertyApplications)
+      // Fetch applications for this property
+      const propertyApplications = await applicationService.getApplicationsByProperty(params.id as string)
+      setApplications(propertyApplications)
 
-        // Fetch lease documents from filledLeases collection
-        const leaseDocuments = await documentService.getLeaseDocuments(params.id as string)
-        setLeases(leaseDocuments)
+      // Fetch lease documents from filledLeases collection
+      const leaseDocuments = await documentService.getLeaseDocuments(params.id as string)
+      setLeases(leaseDocuments)
 
-      } catch (error) {
-        console.error("Error fetching property data:", error)
-        toast.error("Failed to load property data")
-      } finally {
-        setLoading(false)
-      }
+    } catch (error) {
+      console.error("Error fetching property data:", error)
+      toast.error("Failed to load property data")
+    } finally {
+      setLoading(false)
     }
+  }
 
+  useEffect(() => {
     fetchData()
   }, [params.id, user])
+
+  const handleApplicationStatusChange = () => {
+    // Refresh the data when application status changes
+    fetchData()
+  }
 
   if (loading) {
     return (
@@ -100,6 +105,7 @@ export default function PropertyDetailsPage() {
         leases={leases}
         activeTab={activeTab}
         setActiveTab={setActiveTab}
+        onApplicationStatusChange={handleApplicationStatusChange}
       />
     </div>
   )

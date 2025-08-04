@@ -1,5 +1,6 @@
 import { collection, addDoc, serverTimestamp, query, where, getDocs, doc, updateDoc } from "firebase/firestore"
 import { db } from "../firebase"
+import { noticeService } from "./notice-service"
 
 export const invitationService = {
   async createInvitation(invitation: {
@@ -9,11 +10,36 @@ export const invitationService = {
     status: string
     invitedAt?: Date
   }) {
-    await addDoc(collection(db, "invitations"), {
+    // Create the invitation
+    const invitationRef = await addDoc(collection(db, "invitations"), {
       ...invitation,
       invitedAt: invitation.invitedAt || serverTimestamp(),
       updatedAt: serverTimestamp(),
     })
+
+    // Also create a notice for the renter
+    try {
+      console.log("[InvitationService] Creating notice for invitation:", invitationRef.id)
+      const noticeData = {
+        landlordId: invitation.landlordId,
+        propertyId: invitation.propertyId,
+        renterId: invitation.renterEmail,
+        renterEmail: invitation.renterEmail, // Set both for consistency
+        type: "invitation_sent",
+        subject: "New Property Invitation",
+        message: `You have received an invitation to view a property. Click "View" to see the property details and accept or reject the invitation.`,
+        // Add invitation ID to the notice data
+        invitationId: invitationRef.id
+      }
+      console.log("[InvitationService] Notice data:", noticeData)
+      await noticeService.createNotice(noticeData)
+      console.log("[InvitationService] Notice created successfully")
+    } catch (error) {
+      console.error("Error creating invitation notice:", error)
+      // Don't fail the invitation creation if notice creation fails
+    }
+
+    return invitationRef.id
   },
 
   async updateInvitationStatus(invitationId: string, status: string) {

@@ -256,7 +256,7 @@ export default function RenterDashboardPage() {
   }
 
   const navigateToProfile = () => router.push("/renter/profile")
-  const navigateToNotices = () => router.push("/renter/dashboard")
+  const navigateToNotices = () => router.push("/renter/notices")
   const navigateToPayments = () => router.push("/payments")
 
   const handleAcceptLease = async () => {
@@ -270,6 +270,38 @@ export default function RenterDashboardPage() {
       status: "active",
     });
     window.location.reload();
+  };
+
+  const handleViewCurrentLease = async () => {
+    if (!currentLease) return;
+    
+    try {
+      // Try to find a lease agreement document for this lease
+      const leaseRef = doc(db, "filledLeases", currentLease.id);
+      const leaseSnap = await getDoc(leaseRef);
+      
+      if (leaseSnap.exists()) {
+        const leaseData = leaseSnap.data();
+        const pdfUrl = leaseData.filledPdfUrl || leaseData.originalTemplateUrl;
+        
+        if (pdfUrl) {
+          setSelectedPdfUrl(pdfUrl);
+          setSelectedPdfTitle(leaseData.templateName || "Lease Agreement");
+          setSelectedLeaseAgreementId(currentLease.id);
+          setIsPdfViewerOpen(true);
+        } else {
+          console.error("No PDF URL found in lease agreement");
+        }
+      } else {
+        // If no filled lease document exists, try to find a lease template or document
+        console.log("No filled lease document found, checking for lease templates...");
+        // For now, show a message that the lease document is not available
+        alert("Lease document is not available yet. Please contact your landlord.");
+      }
+    } catch (error) {
+      console.error("Error opening lease PDF:", error);
+      alert("Failed to open lease document. Please try again later.");
+    }
   };
 
   const handleViewLease = async (notice: Notice) => {
@@ -312,7 +344,7 @@ export default function RenterDashboardPage() {
     setSelectedPdfTitle("");
     setSelectedLeaseAgreementId("");
     setSelectedNotice(null);
-    // Refresh the page to show updated notices
+    // Refresh the page to update the lease status
     window.location.reload();
   };
 
@@ -424,13 +456,33 @@ export default function RenterDashboardPage() {
           </Card>
         )}
 
+        {/* Pending Lease Signing Alert */}
+        {notices.some(n => (n.type === "lease_received" || n.type === "lease_completed") && !n.readAt) && (
+          <Card className="border-blue-500/50 bg-blue-50/50">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-blue-700">
+                <FileText className="h-5 w-5" />
+                Lease Agreement Ready for Signing
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground mb-3">
+                You have lease agreements that require your signature. Please review and sign them promptly.
+              </p>
+              <Button size="sm" className="bg-blue-600 hover:bg-blue-700" onClick={navigateToNotices}>
+                Review Lease Agreements
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Unread Notices Alert */}
-        {unreadNotices.length > 0 && (
+        {unreadNotices.filter(n => n.type !== "lease_received" && n.type !== "lease_completed").length > 0 && (
           <Card className="border-destructive/50 bg-destructive/5">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-destructive">
                 <AlertTriangle className="h-5 w-5" />
-                {unreadNotices.length} Unread Notice{unreadNotices.length > 1 ? "s" : ""}
+                {unreadNotices.filter(n => n.type !== "lease_received" && n.type !== "lease_completed").length} Unread Notice{unreadNotices.filter(n => n.type !== "lease_received" && n.type !== "lease_completed").length > 1 ? "s" : ""}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -488,7 +540,7 @@ export default function RenterDashboardPage() {
               </div>
 
               <div className="grid grid-cols-2 gap-4 pt-4">
-                <Button variant="outline" size="sm">
+                <Button variant="outline" size="sm" onClick={handleViewCurrentLease}>
                   <FileText className="h-4 w-4 mr-2" />
                   View Lease
                 </Button>

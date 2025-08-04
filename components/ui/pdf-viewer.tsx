@@ -10,6 +10,8 @@ import { storage, db } from "@/lib/firebase"
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage"
 import { collection, addDoc, serverTimestamp, doc, updateDoc, query, where, getDocs } from "firebase/firestore"
 import { toast } from "sonner"
+import { notificationService } from "@/lib/services/notification-service"
+import { documentService } from "@/lib/services/document-service"
 
 interface PDFViewerProps {
   isOpen: boolean
@@ -219,6 +221,12 @@ export function PDFViewer({
       const noticeRef = await addDoc(collection(db, "notices"), landlordNoticeData)
       
       console.log("Successfully created landlord notice with ID:", noticeRef.id)
+      
+      // Also create a notification for the landlord
+      await notificationService.notifyLeaseReceived(landlordId, propertyId, currentUserEmail, leaseAgreementId)
+      
+      // Update renter status to "lease" when they upload signed lease
+      await documentService.updateRenterStatusOnLeaseUpload(propertyId, currentUserEmail, leaseAgreementId)
       
       toast.success("Lease submitted successfully! Landlord has been notified.")
       

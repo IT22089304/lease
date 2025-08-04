@@ -5,12 +5,14 @@ import { Home, Bed, Bath, Square, MapPin, Eye, Check, X, FileText, CheckCircle, 
 import type { ReactNode } from "react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { applicationService } from "@/lib/services/application-service"
+import { renterStatusService } from "@/lib/services/renter-status-service"
 import { toast } from "sonner"
 import { MapDisplay } from "@/components/ui/map-display"
+import { db } from "@/lib/firebase"
 
-export function PropertyDetailsView({ property, actionButton, tabs, activeTab, setActiveTab, belowLocation, applications, leases }: {
+export function PropertyDetailsView({ property, actionButton, tabs, activeTab, setActiveTab, belowLocation, applications, leases, onApplicationStatusChange }: {
   property: any,
   actionButton?: ReactNode,
   tabs?: ReactNode,
@@ -18,8 +20,26 @@ export function PropertyDetailsView({ property, actionButton, tabs, activeTab, s
   setActiveTab?: (tab: string) => void,
   belowLocation?: ReactNode,
   applications?: any[],
-  leases?: any[]
+  leases?: any[],
+  onApplicationStatusChange?: () => void
 }) {
+  const [renterStatuses, setRenterStatuses] = useState<any[]>([])
+
+  // Fetch renter statuses for this property
+  useEffect(() => {
+    const fetchRenterStatuses = async () => {
+      if (property?.id) {
+        try {
+          const statuses = await renterStatusService.getRenterStatusByProperty(property.id)
+          setRenterStatuses(statuses)
+        } catch (error) {
+          console.error("Error fetching renter statuses:", error)
+        }
+      }
+    }
+    
+    fetchRenterStatuses()
+  }, [property?.id])
   const [selectedApplication, setSelectedApplication] = useState<any>(null)
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
@@ -34,14 +54,9 @@ export function PropertyDetailsView({ property, actionButton, tabs, activeTab, s
       await applicationService.updateApplicationStatus(applicationId, action === 'approve' ? 'approved' : 'rejected')
       toast.success(`Application ${action === 'approve' ? 'approved' : 'rejected'} successfully`)
       
-      // Update the applications list
-      if (applications) {
-        const updatedApplications = applications.map(app => 
-          app.id === applicationId 
-            ? { ...app, status: action === 'approve' ? 'approved' : 'rejected' }
-            : app
-        )
-        // You might want to trigger a re-fetch here or update the parent component
+      // Trigger parent component refresh to update both applications and kanban board
+      if (onApplicationStatusChange) {
+        onApplicationStatusChange()
       }
     } catch (error) {
       toast.error(`Failed to ${action} application`)
@@ -69,6 +84,79 @@ export function PropertyDetailsView({ property, actionButton, tabs, activeTab, s
       toast.success(`Downloading ${lease.name || 'lease agreement'}`)
     } else {
       toast.error("Lease PDF not available for download")
+    }
+  }
+
+  // Check if accept/reject buttons should show for a lease
+  const shouldShowLeaseActions = (lease: any) => {
+    if (!lease.renterId && !lease.receiverEmail) return false
+    
+    const renterEmail = lease.renterId || lease.receiverEmail
+    const renterStatus = renterStatuses.find(rs => rs.renterEmail === renterEmail)
+    
+    // Only show actions if renter status is "lease" (not accepted, lease_rejected, or higher)
+    return renterStatus?.status === "lease"
+  }
+
+  const handleLeaseAction = async (lease: any, action: 'accept' | 'reject') => {
+    setIsProcessing(true)
+    try {
+      // Update renter status based on action
+      if (lease.renterId && property.id) {
+        // Find the renter status entry
+        const renterStatuses = await renterStatusService.getRenterStatusByProperty(property.id)
+        const renterStatus = renterStatuses.find(rs => 
+          rs.renterEmail === lease.renterId || rs.renterEmail === lease.receiverEmail
+        )
+        
+        if (renterStatus && renterStatus.id) {
+          let newStage: "invite" | "application" | "lease" | "lease_rejected" | "accepted" | "payment" | "leased"
+          let notes: string
+          
+          if (action === 'accept') {
+            // When landlord accepts a lease, move renter to "accepted" stage
+            newStage = "accepted"
+            notes = "Lease accepted by landlord"
+          } else {
+            // When landlord rejects a lease, keep in lease stage but mark as rejected
+            newStage = "lease_rejected"
+            notes = "Lease rejected by landlord"
+          }
+          
+          await renterStatusService.updateRenterStatus(renterStatus.id, {
+            status: newStage,
+            leaseId: lease.id,
+            notes: notes
+          })
+        }
+      }
+      
+      // Update the lease document to mark it as reviewed by landlord
+      try {
+        const { doc, updateDoc, serverTimestamp } = await import("firebase/firestore")
+        const leaseRef = doc(db, "filledLeases", lease.id)
+        await updateDoc(leaseRef, {
+          landlordReviewed: true,
+          landlordReviewedAt: serverTimestamp(),
+          landlordAction: action,
+          status: action === 'accept' ? 'accepted' : 'rejected'
+        })
+      } catch (error) {
+        console.error("Error updating lease document:", error)
+        // Don't fail the whole operation if lease update fails
+      }
+      
+      toast.success(`Lease ${action}ed successfully`)
+      
+      // Trigger parent component refresh
+      if (onApplicationStatusChange) {
+        onApplicationStatusChange()
+      }
+    } catch (error) {
+      console.error(`Error ${action}ing lease:`, error)
+      toast.error(`Failed to ${action} lease`)
+    } finally {
+      setIsProcessing(false)
     }
   }
 
@@ -270,7 +358,6 @@ export function PropertyDetailsView({ property, actionButton, tabs, activeTab, s
                     <MapDisplay 
                       lat={property.latitude} 
                       lng={property.longitude} 
-                      apiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || ""}
                       title={property.title}
                       address={formatAddress(property.address)}
                     />
@@ -431,6 +518,30 @@ export function PropertyDetailsView({ property, actionButton, tabs, activeTab, s
                           <Download className="h-4 w-4 mr-2" />
                           Download
                         </Button>
+                        {(lease.status === "completed" || lease.status === "renter_completed") && 
+                         shouldShowLeaseActions(lease) && (
+                          <>
+                            <Button
+                              variant="default"
+                              size="sm"
+                              onClick={() => handleLeaseAction(lease, 'accept')}
+                              disabled={isProcessing}
+                              className="bg-green-600 hover:bg-green-700"
+                            >
+                              <Check className="h-4 w-4 mr-2" />
+                              {isProcessing ? "Processing..." : "Accept"}
+                            </Button>
+                            <Button
+                              variant="destructive"
+                              size="sm"
+                              onClick={() => handleLeaseAction(lease, 'reject')}
+                              disabled={isProcessing}
+                            >
+                              <X className="h-4 w-4 mr-2" />
+                              {isProcessing ? "Processing..." : "Reject"}
+                            </Button>
+                          </>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -832,8 +943,8 @@ export function PropertyDetailsView({ property, actionButton, tabs, activeTab, s
                   <>
                     <Button 
                       variant="default" 
-                      onClick={() => {
-                        handleApplicationAction(selectedApplication.id, 'approve')
+                      onClick={async () => {
+                        await handleApplicationAction(selectedApplication.id, 'approve')
                         setIsViewDialogOpen(false)
                       }}
                       disabled={isProcessing}
@@ -843,8 +954,8 @@ export function PropertyDetailsView({ property, actionButton, tabs, activeTab, s
                     </Button>
                     <Button 
                       variant="destructive" 
-                      onClick={() => {
-                        handleApplicationAction(selectedApplication.id, 'reject')
+                      onClick={async () => {
+                        await handleApplicationAction(selectedApplication.id, 'reject')
                         setIsViewDialogOpen(false)
                       }}
                       disabled={isProcessing}

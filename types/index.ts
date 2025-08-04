@@ -161,6 +161,7 @@ export interface Notice {
     | "utility_shutdown"
     | "cleanliness"
     | "custom"
+    | "invitation_sent"
     | "lease_received"
     | "lease_completed"
     | "invoice_sent"
@@ -174,6 +175,7 @@ export interface Notice {
   leaseAgreementId?: string
   renterEmail?: string
   invoiceId?: string
+  invitationId?: string
 }
 
 export interface LeaseTemplate {
@@ -288,6 +290,8 @@ export interface DashboardStats {
   pendingSignatures: number
   pendingApplications?: number
   activeInvitations?: number
+  totalNotices?: number
+  unreadNotices?: number
 }
 
 export interface Invoice {

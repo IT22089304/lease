@@ -33,25 +33,60 @@ export const noticeService = {
 
   // Get all notices for a renter
   async getRenterNotices(renterEmail: string): Promise<Notice[]> {
-    const q = query(
-      collection(db, "notices"),
-      where("renterId", "==", renterEmail),
-      orderBy("sentAt", "desc")
-    )
-    const querySnapshot = await getDocs(q)
+    console.log("[NoticeService] Getting notices for renter:", renterEmail)
+    
+    // Query for both renterId and renterEmail since some notices use one or the other
+    const [byId, byEmail] = await Promise.all([
+      getDocs(query(
+        collection(db, "notices"),
+        where("renterId", "==", renterEmail),
+        orderBy("sentAt", "desc")
+      )),
+      getDocs(query(
+        collection(db, "notices"),
+        where("renterEmail", "==", renterEmail),
+        orderBy("sentAt", "desc")
+      ))
+    ])
+    
+    console.log("[NoticeService] Found notices by renterId:", byId.docs.length)
+    console.log("[NoticeService] Found notices by renterEmail:", byEmail.docs.length)
+    // Combine and deduplicate results
+    const allDocs = [...byId.docs, ...byEmail.docs]
+    const seenIds = new Set<string>()
     
     // Filter out notices that should only be visible to landlords
-    const notices = querySnapshot.docs
-      .map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        sentAt: doc.data().sentAt?.toDate(),
-        readAt: doc.data().readAt?.toDate(),
-      }))
-      .filter((notice: any) => 
-        notice.type !== "lease_completed" && 
-        notice.type !== "payment_received" // Filter out landlord-specific payment notices
-      )
+    const notices = allDocs
+      .filter(doc => {
+        // Deduplicate by ID
+        if (seenIds.has(doc.id)) return false
+        seenIds.add(doc.id)
+        return true
+      })
+      .map(doc => {
+        const data = doc.data()
+        console.log("[NoticeService] Processing notice:", { id: doc.id, type: data.type })
+        return {
+          id: doc.id,
+          ...data,
+          sentAt: data.sentAt?.toDate(),
+          readAt: data.readAt?.toDate(),
+        }
+      })
+      .filter((notice: any) => {
+        // Keep invitation notices and other renter-specific notices
+        const shouldKeep = notice.type === "invitation_sent" || 
+                         (notice.type !== "lease_completed" && 
+                          notice.type !== "payment_received") // Filter out landlord-specific notices
+        console.log("[NoticeService] Notice filtering:", { id: notice.id, type: notice.type, keep: shouldKeep })
+        return shouldKeep
+      })
+      // Sort by sentAt date
+      .sort((a, b) => {
+        const aDate = a.sentAt ? a.sentAt.getTime() : 0
+        const bDate = b.sentAt ? b.sentAt.getTime() : 0
+        return bDate - aDate
+      })
     
     return notices as Notice[]
   },

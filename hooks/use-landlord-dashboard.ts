@@ -3,6 +3,8 @@ import { useAuth } from "@/lib/auth"
 import { propertyService } from "@/lib/services/property-service"
 import { leaseService } from "@/lib/services/lease-service"
 import { paymentService } from "@/lib/services/payment-service"
+import { noticeService } from "@/lib/services/notice-service"
+import { notificationService } from "@/lib/services/notification-service"
 import type { Property, DashboardStats, Lease } from "@/types"
 
 export function useLandlordDashboard() {
@@ -16,6 +18,8 @@ export function useLandlordDashboard() {
     pendingSignatures: 0,
     pendingApplications: 0,
     activeInvitations: 0,
+    totalNotices: 0,
+    unreadNotices: 0,
   })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -51,6 +55,22 @@ export function useLandlordDashboard() {
           // Continue without overdue payments data
         }
 
+        // Fetch notice statistics
+        let totalNotices = 0
+        let unreadNotices = 0
+        try {
+          const [allNotices, allNotifications] = await Promise.all([
+            noticeService.getLandlordNotices(user.id),
+            notificationService.getLandlordNotifications(user.id)
+          ])
+          
+          totalNotices = allNotices.length + allNotifications.length
+          unreadNotices = allNotices.filter(n => !n.readAt).length + allNotifications.filter(n => !n.readAt).length
+        } catch (noticeError) {
+          console.warn("Error fetching notices:", noticeError)
+          // Continue without notice data
+        }
+
         setStats({
           totalProperties: propertiesData.length,
           activeLeases: activeLeases.length,
@@ -59,6 +79,8 @@ export function useLandlordDashboard() {
           pendingSignatures: allLeases.filter(lease => lease.status === "pending_signature").length,
           pendingApplications: 0, // TODO: Add applications service
           activeInvitations: 0, // TODO: Add invitations service
+          totalNotices,
+          unreadNotices,
         })
 
       } catch (err) {

@@ -9,6 +9,7 @@ import {
   getDoc,
 } from "firebase/firestore"
 import { db } from "../firebase"
+import { renterStatusService } from "./renter-status-service"
 
 export interface DocumentData {
   id: string
@@ -117,4 +118,36 @@ export const documentService = {
       return null
     }
   },
+
+  // Update renter status when a lease is uploaded/signed
+  async updateRenterStatusOnLeaseUpload(propertyId: string, renterEmail: string, leaseId: string) {
+    try {
+      // Find the renter status entry
+      const renterStatuses = await renterStatusService.getRenterStatusByProperty(propertyId)
+      const renterStatus = renterStatuses.find(rs => rs.renterEmail === renterEmail)
+      
+      if (renterStatus && renterStatus.id) {
+        // Update status to "lease" when renter uploads signed lease
+        await renterStatusService.updateRenterStatus(renterStatus.id, {
+          status: "lease",
+          leaseId: leaseId,
+          notes: "Signed lease uploaded - Awaiting landlord approval"
+        })
+      } else {
+        // Create new renter status if none exists
+        await renterStatusService.createRenterStatus({
+          propertyId: propertyId,
+          landlordId: "", // This should be populated with actual landlord ID
+          renterEmail: renterEmail,
+          renterName: renterEmail.split('@')[0],
+          status: "lease",
+          leaseId: leaseId,
+          notes: "Signed lease uploaded - Awaiting landlord approval"
+        })
+      }
+    } catch (error) {
+      console.error("Error updating renter status on lease upload:", error)
+      // Don't throw - this is a secondary operation
+    }
+  }
 } 

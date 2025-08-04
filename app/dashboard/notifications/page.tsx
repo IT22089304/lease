@@ -101,6 +101,7 @@ export default function ReceivedNotificationsPage() {
       lease_received: "Lease Agreement Received",
       lease_completed: "Lease Agreement Completed",
       invoice_sent: "Invoice Sent",
+      payment_received: "Payment Received",
     }
     return labels[type] || type
   }
@@ -122,12 +123,13 @@ export default function ReceivedNotificationsPage() {
       lease_received: "default",
       lease_completed: "default",
       invoice_sent: "default",
+      payment_received: "default",
     }
     return variants[type] || "outline"
   }
 
   const getUrgencyLevel = (type: Notice["type"]) => {
-    const urgentTypes = ["eviction", "late_rent", "lease_violation", "utility_shutdown", "lease_completed"]
+    const urgentTypes = ["eviction", "late_rent", "lease_violation", "utility_shutdown", "lease_completed", "lease_received"]
     return urgentTypes.includes(type) ? "high" : "normal"
   }
 
@@ -315,6 +317,12 @@ export default function ReceivedNotificationsPage() {
       }
     }
 
+    // Handle lease agreement notifications - open the lease directly
+    if (notification._type === "lease" && notification.leaseAgreementId) {
+      await handleViewLease(notification);
+      return;
+    }
+
     // Navigate based on notification type and navigation data
     if (notification.navigation) {
       const { path, params } = notification.navigation;
@@ -350,6 +358,7 @@ export default function ReceivedNotificationsPage() {
           window.location.href = "/dashboard/incomes";
           break;
         case "lease_completed":
+        case "lease_received":
           window.location.href = "/dashboard/notifications?tab=lease";
           break;
         case "invoice_sent":

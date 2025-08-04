@@ -20,29 +20,16 @@ import {
   User,
   Calendar,
   Phone,
-  MapPin
+  MapPin,
+  GripVertical
 } from "lucide-react"
 import { useAuth } from "@/lib/auth"
 import { propertyService } from "@/lib/services/property-service"
 import { invitationService } from "@/lib/services/invitation-service"
 import { applicationService } from "@/lib/services/application-service"
 import { leaseService } from "@/lib/services/lease-service"
+import { renterStatusService, type RenterStatus } from "@/lib/services/renter-status-service"
 import { toast } from "sonner"
-
-interface TenantCard {
-  id: string
-  name: string
-  email: string
-  phone?: string
-  stage: "invite" | "application" | "lease" | "accepted" | "payment" | "leased"
-  propertyId: string
-  invitationId?: string
-  applicationId?: string
-  leaseId?: string
-  createdAt: Date
-  updatedAt: Date
-  notes?: string
-}
 
 const stages = [
   { id: "invite", title: "Invite", color: "bg-blue-100 text-blue-700" },
@@ -58,11 +45,12 @@ export default function FindTenantsPage() {
   const router = useRouter()
   const { user } = useAuth()
   const [property, setProperty] = useState<any>(null)
-  const [tenants, setTenants] = useState<TenantCard[]>([])
+  const [renterStatuses, setRenterStatuses] = useState<RenterStatus[]>([])
   const [loading, setLoading] = useState(true)
   const [isInviteDialogOpen, setIsInviteDialogOpen] = useState(false)
   const [inviteEmail, setInviteEmail] = useState("")
   const [inviteMessage, setInviteMessage] = useState("")
+  const [draggedItem, setDraggedItem] = useState<string | null>(null)
 
   useEffect(() => {
     async function fetchData() {
@@ -75,63 +63,14 @@ export default function FindTenantsPage() {
         const propertyData = await propertyService.getProperty(params.propertyId as string)
         setProperty(propertyData)
 
-        // Fetch invitations, applications, and leases for this property
-        const invitations = await invitationService.getPropertyInvitations(params.propertyId as string)
-        const applications = await applicationService.getApplicationsByProperty(params.propertyId as string)
-        const leases = await leaseService.getLandlordLeases(user.id)
+        // Fetch renter statuses for this property
+        const statuses = await renterStatusService.getRenterStatusByProperty(params.propertyId as string)
+        setRenterStatuses(statuses)
 
-        // Transform data into tenant cards
-        const tenantCards: TenantCard[] = []
-
-        // Add invitations
-        invitations.forEach((invitation: any) => {
-          tenantCards.push({
-            id: invitation.id,
-            name: invitation.renterEmail.split('@')[0], // Use email prefix as name
-            email: invitation.renterEmail,
-            stage: invitation.status === "accepted" ? "application" : "invite",
-            propertyId: params.propertyId as string,
-            invitationId: invitation.id,
-            createdAt: invitation.invitedAt,
-            updatedAt: invitation.respondedAt || invitation.invitedAt,
-            notes: invitation.message || invitation.status
-          })
-        })
-
-        // Add applications
-        applications.forEach((application: any) => {
-          tenantCards.push({
-            id: application.id,
-            name: application.renterEmail?.split('@')[0] || application.fullName?.split(' ')[0] || "Applicant",
-            email: application.renterEmail || "applicant@example.com",
-            stage: application.status === "approved" ? "lease" : "application",
-            propertyId: params.propertyId as string,
-            applicationId: application.id,
-            createdAt: application.submittedAt || application.createdAt,
-            updatedAt: application.reviewedAt || application.updatedAt,
-            notes: application.status || "Application submitted"
-          })
-        })
-
-        // Add active leases
-        const propertyLeases = leases.filter(lease => 
-          lease.propertyId === params.propertyId && lease.status === "active"
-        )
-        propertyLeases.forEach(lease => {
-          tenantCards.push({
-            id: lease.id,
-            name: lease.renterId?.split('@')[0] || "Tenant",
-            email: lease.renterId || "tenant@example.com",
-            stage: "leased",
-            propertyId: params.propertyId as string,
-            leaseId: lease.id,
-            createdAt: lease.createdAt,
-            updatedAt: lease.updatedAt,
-            notes: "Active lease"
-          })
-        })
-
-        setTenants(tenantCards)
+        // If no renter statuses exist, sync from existing data
+        if (statuses.length === 0) {
+          await syncExistingData()
+        }
       } catch (error) {
         console.error("Error fetching tenant data:", error)
         toast.error("Failed to load tenant data")
@@ -143,6 +82,83 @@ export default function FindTenantsPage() {
     fetchData()
   }, [params.propertyId, user])
 
+  const syncExistingData = async () => {
+    try {
+      // First, clean up existing renter statuses for this property to avoid duplicates
+      const existingStatuses = await renterStatusService.getRenterStatusByProperty(params.propertyId as string)
+      
+      // Delete all existing statuses to rebuild from scratch
+      for (const status of existingStatuses) {
+        if (status.id) {
+          await renterStatusService.deleteRenterStatus(status.id)
+        }
+      }
+
+      // Fetch existing invitations, applications, and leases
+      const invitations = await invitationService.getPropertyInvitations(params.propertyId as string)
+      const applications = await applicationService.getApplicationsByProperty(params.propertyId as string)
+      const leases = await leaseService.getLandlordLeases(user!.id)
+      const propertyLeases = leases.filter(lease => 
+        lease.propertyId === params.propertyId && lease.status === "active"
+      )
+
+      const newStatuses: RenterStatus[] = []
+
+      // Create status entries from invitations (only accepted ones show in invite stage)
+      for (const invitation of invitations) {
+        // Only process accepted invitations for the kanban board
+        if (invitation.status === "accepted") {
+          const statusData = {
+            propertyId: params.propertyId as string,
+            landlordId: user!.id,
+            renterEmail: invitation.renterEmail,
+            renterName: invitation.renterEmail.split('@')[0],
+            status: "invite" as const, // Accepted invitations show in invite stage
+            invitationId: invitation.id,
+            notes: `Invitation accepted - ${invitation.renterEmail}`
+          }
+          const statusId = await renterStatusService.createRenterStatus(statusData)
+          newStatuses.push({ ...statusData, id: statusId, createdAt: new Date(), updatedAt: new Date() })
+        }
+        // Skip pending/rejected invitations - they won't appear on the kanban board
+      }
+
+      // Create status entries from applications
+      for (const application of applications) {
+        const statusData = {
+          propertyId: params.propertyId as string,
+          landlordId: user!.id,
+          renterEmail: (application as any).renterEmail || "applicant@example.com",
+          renterName: (application as any).renterEmail?.split('@')[0] || (application as any).fullName?.split(' ')[0] || "Applicant",
+          status: ((application as any).status === "approved" ? "lease" : "application") as "invite" | "application" | "lease" | "accepted" | "payment" | "leased",
+          applicationId: application.id,
+          notes: (application as any).status || "Application submitted"
+        }
+        const statusId = await renterStatusService.createRenterStatus(statusData)
+        newStatuses.push({ ...statusData, id: statusId, createdAt: new Date(), updatedAt: new Date() })
+      }
+
+      // Create status entries from leases
+      for (const lease of propertyLeases) {
+        const statusData = {
+          propertyId: params.propertyId as string,
+          landlordId: user!.id,
+          renterEmail: lease.renterId || "tenant@example.com",
+          renterName: lease.renterId?.split('@')[0] || "Tenant",
+          status: "leased" as const,
+          leaseId: lease.id,
+          notes: "Active lease"
+        }
+        const statusId = await renterStatusService.createRenterStatus(statusData)
+        newStatuses.push({ ...statusData, id: statusId, createdAt: new Date(), updatedAt: new Date() })
+      }
+
+      setRenterStatuses(newStatuses)
+    } catch (error) {
+      console.error("Error syncing existing data:", error)
+    }
+  }
+
   const handleSendInvitation = async () => {
     if (!inviteEmail.trim()) {
       toast.error("Please enter an email address")
@@ -150,6 +166,7 @@ export default function FindTenantsPage() {
     }
 
     try {
+      // Create invitation
       await invitationService.createInvitation({
         landlordId: user!.id,
         propertyId: params.propertyId as string,
@@ -158,26 +175,55 @@ export default function FindTenantsPage() {
         invitedAt: new Date()
       })
 
+      // Don't create renter status entry for pending invitations
+      // They will only appear on the kanban board once accepted
+      // The invitation is sent but won't show up until the renter accepts it
+
       toast.success("Invitation sent successfully")
       setIsInviteDialogOpen(false)
       setInviteEmail("")
       setInviteMessage("")
-      // Refresh the page to show the new invitation
-      router.refresh()
     } catch (error) {
       console.error("Error sending invitation:", error)
       toast.error("Failed to send invitation")
     }
   }
 
-  const moveTenant = (tenantId: string, newStage: string) => {
-    setTenants(prev => 
-      prev.map(tenant => 
-        tenant.id === tenantId 
-          ? { ...tenant, stage: newStage as any, updatedAt: new Date() }
-          : tenant
+  const handleDragStart = (e: React.DragEvent, statusId: string) => {
+    setDraggedItem(statusId)
+    e.dataTransfer.effectAllowed = "move"
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = "move"
+  }
+
+  const handleDrop = async (e: React.DragEvent, targetStage: string) => {
+    e.preventDefault()
+    
+    if (!draggedItem) return
+
+    try {
+      // Update the status in the database
+      await renterStatusService.moveRenterToStage(draggedItem, targetStage as any)
+      
+      // Update local state
+      setRenterStatuses(prev => 
+        prev.map(status => 
+          status.id === draggedItem 
+            ? { ...status, status: targetStage as any, updatedAt: new Date() }
+            : status
+        )
       )
-    )
+
+      toast.success("Renter moved successfully")
+    } catch (error) {
+      console.error("Error moving renter:", error)
+      toast.error("Failed to move renter")
+    } finally {
+      setDraggedItem(null)
+    }
   }
 
   if (loading) {
@@ -257,46 +303,96 @@ export default function FindTenantsPage() {
       {/* Kanban Board */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
         {stages.map((stage) => {
-          const stageTenants = tenants.filter(tenant => tenant.stage === stage.id)
+          let stageRenters = renterStatuses.filter(status => {
+            // For lease stage, include both "lease" and "lease_rejected" statuses
+            if (stage.id === "lease") {
+              return status.status === "lease" || status.status === "lease_rejected"
+            }
+            return status.status === stage.id
+          })
+          
+          // For invite stage, only show renters with accepted invitations
+          if (stage.id === "invite") {
+            stageRenters = stageRenters.filter(status => {
+              // Only show if there's an invitationId and the notes indicate acceptance
+              return status.invitationId && 
+                     (status.notes?.includes("accepted") || status.notes?.includes("Invitation accepted"))
+            })
+          }
+          
+          // Filter out renters who have progressed to later stages
+          // Each email should only appear in the furthest stage they've reached
+          stageRenters = stageRenters.filter(status => {
+            const currentStageIndex = stages.findIndex(s => s.id === stage.id)
+            
+            // Check if this renter has progressed to any later stage
+            const hasLaterStage = renterStatuses.some(otherStatus => {
+              if (otherStatus.renterEmail !== status.renterEmail) return false
+              
+              const otherStageIndex = stages.findIndex(s => s.id === otherStatus.status)
+              return otherStageIndex > currentStageIndex
+            })
+            
+            // Only show if this is the furthest stage for this renter
+            return !hasLaterStage
+          })
           
           return (
-            <Card key={stage.id} className="h-fit">
+            <Card 
+              key={stage.id} 
+              className="h-fit"
+              onDragOver={handleDragOver}
+              onDrop={(e) => handleDrop(e, stage.id)}
+            >
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-sm font-medium">{stage.title}</CardTitle>
                   <Badge className={`text-xs ${stage.color}`}>
-                    {stageTenants.length}
+                    {stageRenters.length}
                   </Badge>
                 </div>
               </CardHeader>
               <CardContent className="space-y-2">
-                {stageTenants.map((tenant) => (
-                  <Card key={tenant.id} className="p-3 cursor-pointer hover:shadow-md transition-shadow">
+                {stageRenters.map((renter) => (
+                  <Card 
+                    key={renter.id} 
+                    className={`p-3 cursor-move hover:shadow-md transition-shadow ${
+                      renter.status === "lease_rejected" ? "border-red-500 bg-red-50" : ""
+                    }`}
+                    draggable
+                    onDragStart={(e) => handleDragStart(e, renter.id!)}
+                  >
                     <div className="flex items-start gap-2">
+                      <GripVertical className="h-4 w-4 text-muted-foreground mt-0.5" />
                       <Avatar className="h-8 w-8">
                         <AvatarImage src="" />
                         <AvatarFallback className="text-xs">
-                          {tenant.name.charAt(0).toUpperCase()}
+                          {renter.renterName?.charAt(0).toUpperCase() || "T"}
                         </AvatarFallback>
                       </Avatar>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{tenant.name}</p>
-                        <p className="text-xs text-muted-foreground truncate">{tenant.email}</p>
-                        {tenant.notes && (
-                          <p className="text-xs text-muted-foreground mt-1">{tenant.notes}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-medium truncate">{renter.renterName}</p>
+                          {renter.status === "lease_rejected" && (
+                            <Badge variant="destructive" className="text-xs">Rejected</Badge>
+                          )}
+                        </div>
+                        <p className="text-xs text-muted-foreground truncate">{renter.renterEmail}</p>
+                        {renter.notes && (
+                          <p className="text-xs text-muted-foreground mt-1">{renter.notes}</p>
                         )}
                       </div>
                     </div>
                     <div className="flex items-center gap-1 mt-2">
                       <Calendar className="h-3 w-3 text-muted-foreground" />
                       <span className="text-xs text-muted-foreground">
-                        {new Date(tenant.updatedAt).toLocaleDateString()}
+                        {new Date(renter.updatedAt).toLocaleDateString()}
                       </span>
                     </div>
                   </Card>
                 ))}
                 
-                {stageTenants.length === 0 && (
+                {stageRenters.length === 0 && (
                   <div className="text-center py-4 text-muted-foreground">
                     <p className="text-xs">No tenants</p>
                   </div>
@@ -315,7 +411,40 @@ export default function FindTenantsPage() {
         <CardContent>
           <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
             {stages.map((stage) => {
-              const count = tenants.filter(tenant => tenant.stage === stage.id).length
+              let stageRenters = renterStatuses.filter(status => {
+                // For lease stage, include both "lease" and "lease_rejected" statuses
+                if (stage.id === "lease") {
+                  return status.status === "lease" || status.status === "lease_rejected"
+                }
+                return status.status === stage.id
+              })
+              
+              // Apply the same filtering logic as the kanban board
+              if (stage.id === "invite") {
+                stageRenters = stageRenters.filter(status => {
+                  // Only show if there's an invitationId and the notes indicate acceptance
+                  return status.invitationId && 
+                         (status.notes?.includes("accepted") || status.notes?.includes("Invitation accepted"))
+                })
+              }
+              
+              // Filter out renters who have progressed to later stages (same logic as kanban board)
+              stageRenters = stageRenters.filter(status => {
+                const currentStageIndex = stages.findIndex(s => s.id === stage.id)
+                
+                // Check if this renter has progressed to any later stage
+                const hasLaterStage = renterStatuses.some(otherStatus => {
+                  if (otherStatus.renterEmail !== status.renterEmail) return false
+                  
+                  const otherStageIndex = stages.findIndex(s => s.id === otherStatus.status)
+                  return otherStageIndex > currentStageIndex
+                })
+                
+                // Only show if this is the furthest stage for this renter
+                return !hasLaterStage
+              })
+              
+              const count = stageRenters.length
               return (
                 <div key={stage.id} className="text-center">
                   <div className={`text-2xl font-bold ${stage.color.split(' ')[0]}`}>
