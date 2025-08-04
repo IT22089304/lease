@@ -172,15 +172,17 @@ export function Header() {
     return labels[type as keyof typeof labels] || "Notice";
   };
 
-  // Combine notices and invitations for display (only unread notices)
-  const allNotifications = [
-    ...notices.filter(n => !n.readAt).map((n) => ({ ...n, _type: "notice" })),
-    ...invitations.map((i) => ({ ...i, _type: "invitation" })),
-  ].sort((a, b) => {
-    const aDate = a.sentAt || a.invitedAt || new Date(0);
-    const bDate = b.sentAt || b.invitedAt || new Date(0);
-    return new Date(bDate).getTime() - new Date(aDate).getTime();
-  }).slice(0, 5); // Show only the 5 most recent
+  // Combine notifications for display
+  const allNotifications = user.role === "landlord" 
+    ? notifications.slice(0, 5) // For landlords, show notifications
+    : [
+        ...notices.filter(n => !n.readAt).map((n) => ({ ...n, _type: "notice" })),
+        ...invitations.map((i) => ({ ...i, _type: "invitation" })),
+      ].sort((a, b) => {
+        const aDate = a.sentAt || a.invitedAt || new Date(0);
+        const bDate = b.sentAt || b.invitedAt || new Date(0);
+        return new Date(bDate).getTime() - new Date(aDate).getTime();
+      }).slice(0, 5); // For renters, show notices and invitations
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
