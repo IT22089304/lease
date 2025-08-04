@@ -14,6 +14,7 @@ import { X, Upload, Image as ImageIcon } from "lucide-react"
 import type { Property } from "@/types"
 import { toast } from "sonner"
 import { imageUploadService } from "@/lib/services/image-upload-service"
+import { MapPicker } from "@/components/ui/map-picker"
 
 type PropertyFormData = {
   title: string
@@ -25,6 +26,8 @@ type PropertyFormData = {
     country: string
     postalCode: string
   }
+  latitude?: number
+  longitude?: number
   type: string
   bedrooms: number
   bathrooms: number
@@ -61,6 +64,8 @@ export function PropertyForm({ property, onSave, onCancel, loading = false }: Pr
       country: "US",
       postalCode: "",
     },
+    latitude: undefined,
+    longitude: undefined,
     type: "apartment",
     bedrooms: 1,
     bathrooms: 1,
@@ -287,6 +292,21 @@ export function PropertyForm({ property, onSave, onCancel, loading = false }: Pr
               </div>
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Location Picker */}
+      <Card>
+        <CardContent className="pt-6">
+          <MapPicker
+            onLocationSelect={(lat, lng) => {
+              updateField("latitude", lat)
+              updateField("longitude", lng)
+            }}
+            initialLat={formData.latitude}
+            initialLng={formData.longitude}
+            apiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || ""}
+          />
         </CardContent>
       </Card>
 

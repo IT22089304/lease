@@ -256,7 +256,7 @@ export default function RenterDashboardPage() {
   }
 
   const navigateToProfile = () => router.push("/renter/profile")
-  const navigateToNotices = () => router.push("/renter/notices")
+  const navigateToNotices = () => router.push("/renter/dashboard")
   const navigateToPayments = () => router.push("/payments")
 
   const handleAcceptLease = async () => {
@@ -322,7 +322,7 @@ export default function RenterDashboardPage() {
       handleViewLease(item);
     } else {
       // For other notices, navigate to the notices page
-      router.push("/renter/notices");
+              router.push("/renter/dashboard");
     }
   };
 

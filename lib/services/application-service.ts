@@ -48,6 +48,18 @@ export const applicationService = {
     return { id: doc.id, ...doc.data() }
   },
 
+  async getApplicationsByProperty(propertyId: string) {
+    const q = query(collection(db, "applications"), where("propertyId", "==", propertyId))
+    const snapshot = await getDocs(q)
+    return snapshot.docs.map(doc => ({ 
+      id: doc.id, 
+      ...doc.data(),
+      submittedAt: doc.data().submittedAt?.toDate?.(),
+      updatedAt: doc.data().updatedAt?.toDate?.(),
+      reviewedAt: doc.data().reviewedAt?.toDate?.(),
+    }))
+  },
+
   async updateApplicationStatus(applicationId: string, status: string) {
     const docRef = doc(db, "applications", applicationId)
     await updateDoc(docRef, {

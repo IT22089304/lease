@@ -341,7 +341,7 @@ export default function ReceivedNotificationsPage() {
         case "application_submitted":
         case "application_approved":
         case "application_rejected":
-          window.location.href = "/applications";
+          window.location.href = "/dashboard";
           break;
         case "tenant_moved_in":
           window.location.href = "/properties";

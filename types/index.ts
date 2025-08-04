@@ -52,6 +52,8 @@ export interface Property {
   landlordId: string
   title: string
   address: Address
+  latitude?: number
+  longitude?: number
   type: string
   bedrooms: number
   bathrooms: number

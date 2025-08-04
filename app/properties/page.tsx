@@ -55,6 +55,41 @@ export default function PropertiesPage() {
     router.push(`/invitations/new?propertyId=${id}`)
   }
 
+  const handleCreateLease = (propertyId: string) => {
+    router.push(`/wizard/lease?propertyId=${propertyId}`)
+  }
+
+  const handleSendNotice = (propertyId: string) => {
+    router.push(`/dashboard/notice/${propertyId}`)
+  }
+
+  const handleSendInvitation = (propertyId: string) => {
+    router.push(`/dashboard/invite/${propertyId}`)
+  }
+
+  const handleFindTenants = (propertyId: string) => {
+    router.push(`/dashboard/invite/${propertyId}`)
+  }
+
+  const handleViewIncome = (propertyId: string) => {
+    router.push(`/dashboard/incomes?propertyId=${propertyId}`)
+  }
+
+  const handleMakeAvailable = async (propertyId: string) => {
+    try {
+      // Update property status to available
+      await propertyService.updateProperty(propertyId, { status: "available" })
+      // Refresh the page to show updated status
+      router.refresh()
+    } catch (error) {
+      console.error("Error updating property status:", error)
+    }
+  }
+
+  const handleViewTenantDetails = (propertyId: string) => {
+    router.push(`/dashboard/tenant/${propertyId}`)
+  }
+
   if (loading) {
     return <div className="container mx-auto p-6">Loading properties...</div>
   }
@@ -92,9 +127,14 @@ export default function PropertiesPage() {
               key={property.id}
               property={property}
               onViewProperty={handleViewDetails}
-              onCreateLease={() => router.push(`/wizard/lease?propertyId=${property.id}`)}
-              onSendNotice={() => router.push(`/notices?propertyId=${property.id}`)}
-              onSendInvitation={() => router.push(`/invitations?propertyId=${property.id}`)}
+              onEditProperty={handleEditProperty}
+              onCreateLease={handleCreateLease}
+              onSendNotice={handleSendNotice}
+              onSendInvitation={handleSendInvitation}
+              onFindTenants={handleFindTenants}
+              onViewIncome={handleViewIncome}
+              onMakeAvailable={handleMakeAvailable}
+              onViewTenantDetails={handleViewTenantDetails}
               leased={leased}
             />
           );

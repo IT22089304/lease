@@ -1,133 +1,106 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useRouter, useParams } from "next/navigation"
-import { ArrowLeft, Edit, Send, Home, Bed, Bath, Square, MapPin, FileText, Bell, Upload } from "lucide-react"
+import { useParams, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import { invitationService } from "@/lib/services/invitation-service"
-import { toast } from "sonner"
-import { propertyService } from "@/lib/services/property-service"
-import { noticeService } from "@/lib/services/notice-service"
+import { ArrowLeft } from "lucide-react"
 import { PropertyDetailsView } from "@/components/properties/property-details-view"
+import { propertyService } from "@/lib/services/property-service"
+import { applicationService } from "@/lib/services/application-service"
+import { documentService } from "@/lib/services/document-service"
+import { useAuth } from "@/lib/auth"
+import { toast } from "sonner"
+import { Property } from "@/types"
+import { TabsTrigger } from "@/components/ui/tabs"
 
 export default function PropertyDetailsPage() {
+  const params = useParams()
   const router = useRouter()
-  const params = useParams<{ id: string }>()
-  const [property, setProperty] = useState<any>(null)
-  const [activeTab, setActiveTab] = useState("details")
+  const { user } = useAuth()
+  const [property, setProperty] = useState<Property | null>(null)
+  const [applications, setApplications] = useState<any[]>([])
+  const [leases, setLeases] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [inviteDialogOpen, setInviteDialogOpen] = useState(false)
-  const [inviteEmail, setInviteEmail] = useState("")
-  const [inviteLoading, setInviteLoading] = useState(false)
-  const [noticeDialogOpen, setNoticeDialogOpen] = useState(false)
-  const [noticeSubject, setNoticeSubject] = useState("")
-  const [noticeMessage, setNoticeMessage] = useState("")
-  const [noticeLoading, setNoticeLoading] = useState(false)
+  const [activeTab, setActiveTab] = useState("details")
 
   useEffect(() => {
-    async function fetchProperty() {
-      if (!params?.id) return
-      setLoading(true)
-      const prop = await propertyService.getProperty(params.id)
-      setProperty(prop)
-      setLoading(false)
+    async function fetchData() {
+      if (!params.id || !user) return
+
+      try {
+        setLoading(true)
+        
+        // Fetch property details
+        const propertyData = await propertyService.getProperty(params.id as string)
+        setProperty(propertyData)
+
+        // Fetch applications for this property
+        const propertyApplications = await applicationService.getApplicationsByProperty(params.id as string)
+        setApplications(propertyApplications)
+
+        // Fetch lease documents from filledLeases collection
+        const leaseDocuments = await documentService.getLeaseDocuments(params.id as string)
+        setLeases(leaseDocuments)
+
+      } catch (error) {
+        console.error("Error fetching property data:", error)
+        toast.error("Failed to load property data")
+      } finally {
+        setLoading(false)
+      }
     }
-    fetchProperty()
-  }, [params?.id])
+
+    fetchData()
+  }, [params.id, user])
 
   if (loading) {
-    return <div className="container mx-auto p-6">Loading property...</div>
+    return (
+      <div className="container mx-auto p-6">
+        <div className="flex items-center justify-center h-64">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        </div>
+      </div>
+    )
   }
 
   if (!property) {
-    return <div className="container mx-auto p-6 text-destructive">Property not found.</div>
-  }
-
-  const formatAddress = (address: any) => {
-    return `${address.street}${address.unit ? `, Unit ${address.unit}` : ""}, ${address.city}, ${address.state} ${address.postalCode}`
-  }
-
-  const handleEditProperty = () => {
-    router.push(`/properties/${property.id}/edit`)
-  }
-
-  const handleSendInvitation = async () => {
-    if (!inviteEmail) return
-    try {
-      setInviteLoading(true)
-      await invitationService.createInvitation({
-        propertyId: property.id,
-        landlordId: property.landlordId,
-        renterEmail: inviteEmail,
-        status: "pending",
-        invitedAt: new Date(),
-      })
-      toast.success("Invitation sent!")
-      setInviteDialogOpen(false)
-      setInviteEmail("")
-    } catch (error) {
-      toast.error("Failed to send invitation")
-    } finally {
-      setInviteLoading(false)
-    }
-  }
-
-  const handleSendNoticeDialog = async () => {
-    if (!noticeSubject || !noticeMessage) return
-    try {
-      setNoticeLoading(true)
-      await noticeService.createNotice({
-        landlordId: property.landlordId,
-        propertyId: property.id,
-        renterId: property.renterId || "", // You may want to select a renter if there are multiple
-        type: "custom",
-        subject: noticeSubject,
-        message: noticeMessage,
-        attachments: [],
-        sentAt: new Date(),
-      })
-      toast.success("Notice sent!")
-      setNoticeDialogOpen(false)
-      setNoticeSubject("")
-      setNoticeMessage("")
-    } catch (error) {
-      toast.error("Failed to send notice")
-    } finally {
-      setNoticeLoading(false)
-    }
-  }
-
-  const handleSendNotice = () => {
-    router.push(`/notices/new?propertyId=${property.id}`)
-  }
-
-  const handleReviewApplications = () => {
-    router.push(`/applications?propertyId=${property.id}`)
+    return (
+      <div className="container mx-auto p-6">
+        <div className="text-center">
+          <h2 className="text-xl font-semibold">Property not found</h2>
+          <p className="text-muted-foreground">The property you're looking for doesn't exist.</p>
+        </div>
+      </div>
+    )
   }
 
   return (
-    <PropertyDetailsView
-      property={property}
-      actionButton={
-          <Button variant="outline" onClick={handleEditProperty}>
-            <Edit className="h-4 w-4 mr-2" />
-            Edit Property
+    <div className="container mx-auto p-6 space-y-6">
+      <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4">
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => router.push("/properties")}> 
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back to Properties
           </Button>
-      }
-      tabs={
-        <>
-          <TabsTrigger value="applications">Applications</TabsTrigger>
-          <TabsTrigger value="notices">Notices</TabsTrigger>
-          {property.status === "occupied" && <TabsTrigger value="tenant">Tenant</TabsTrigger>}
-        </>
-      }
-      activeTab={activeTab}
-      setActiveTab={setActiveTab}
-    />
+          <Button variant="default" onClick={() => router.push(`/properties/${params.id}/edit`)}>
+            Edit
+          </Button>
+        </div>
+      </div>
+
+      <PropertyDetailsView
+        property={property}
+        tabs={
+          <>
+            <TabsTrigger value="applications">Applications</TabsTrigger>
+            <TabsTrigger value="leases">Leases</TabsTrigger>
+          </>
+        }
+        applications={applications}
+        leases={leases}
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+      />
+    </div>
   )
 }

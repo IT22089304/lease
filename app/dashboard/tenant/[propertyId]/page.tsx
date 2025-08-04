@@ -668,10 +668,10 @@ export default function TenantDetailsPage() {
 
                      {/* Rental Application Tab */}
            <TabsContent value="application" className="space-y-6">
-             <Card>
-               <CardHeader>
+              <Card>
+                <CardHeader>
                  <CardTitle>Rental Application Details</CardTitle>
-               </CardHeader>
+                </CardHeader>
                <CardContent className="space-y-6">
                  {application ? (
                    <div className="space-y-6">
@@ -679,8 +679,8 @@ export default function TenantDetailsPage() {
                      <div className="space-y-4">
                        <h4 className="font-semibold text-lg">Personal Information</h4>
                        <div className="grid gap-4 md:grid-cols-2">
-                         <div>
-                           <span className="text-sm text-muted-foreground">Full Name:</span>
+                    <div>
+                      <span className="text-sm text-muted-foreground">Full Name:</span>
                            <p className="font-medium">{application.fullName || "N/A"}</p>
                          </div>
                          <div>
@@ -716,8 +716,8 @@ export default function TenantDetailsPage() {
                              <p className="font-medium">${application.employmentMonthlyIncome || "N/A"}</p>
                            </div>
                          </div>
-                       </div>
-                     )}
+                    </div>
+                  )}
 
                      {/* Applicants Information */}
                      {application.applicants && application.applicants.length > 0 && (
@@ -732,8 +732,8 @@ export default function TenantDetailsPage() {
                                    <span className="text-sm text-muted-foreground">Name:</span>
                                    <p className="font-medium">{applicant.name || "N/A"}</p>
                                  </div>
-                                 <div>
-                                   <span className="text-sm text-muted-foreground">Date of Birth:</span>
+                    <div>
+                      <span className="text-sm text-muted-foreground">Date of Birth:</span>
                                    <p className="font-medium">{applicant.dob || "N/A"}</p>
                                  </div>
                                  <div>
@@ -752,8 +752,8 @@ export default function TenantDetailsPage() {
                              </div>
                            ))}
                          </div>
-                       </div>
-                     )}
+                    </div>
+                  )}
 
                      {/* Occupants Information */}
                      {application.occupants && application.occupants.length > 0 && (
@@ -764,7 +764,7 @@ export default function TenantDetailsPage() {
                              <div key={index} className="border rounded-lg p-4">
                                <h5 className="font-medium mb-3">Occupant {index + 1}</h5>
                                <div className="grid gap-3 md:grid-cols-3">
-                                 <div>
+                    <div>
                                    <span className="text-sm text-muted-foreground">Name:</span>
                                    <p className="font-medium">{occupant.name || "N/A"}</p>
                                  </div>
@@ -780,8 +780,8 @@ export default function TenantDetailsPage() {
                              </div>
                            ))}
                          </div>
-                       </div>
-                     )}
+                    </div>
+                  )}
 
                      {/* Employment History */}
                      {application.employments && application.employments.length > 0 && (
@@ -792,15 +792,15 @@ export default function TenantDetailsPage() {
                              <div key={index} className="border rounded-lg p-4">
                                <h5 className="font-medium mb-3">Employment {index + 1}</h5>
                                <div className="grid gap-3 md:grid-cols-2">
-                                 <div>
-                                   <span className="text-sm text-muted-foreground">Employer:</span>
+                    <div>
+                      <span className="text-sm text-muted-foreground">Employer:</span>
                                    <p className="font-medium">{employment.employer || "N/A"}</p>
-                                 </div>
-                                 <div>
-                                   <span className="text-sm text-muted-foreground">Position:</span>
+                    </div>
+                    <div>
+                      <span className="text-sm text-muted-foreground">Position:</span>
                                    <p className="font-medium">{employment.position || "N/A"}</p>
-                                 </div>
-                                 <div>
+                    </div>
+                    <div>
                                    <span className="text-sm text-muted-foreground">Address:</span>
                                    <p className="font-medium">{employment.address || "N/A"}</p>
                                  </div>
@@ -824,8 +824,8 @@ export default function TenantDetailsPage() {
                              </div>
                            ))}
                          </div>
-                       </div>
-                     )}
+                    </div>
+                  )}
 
                      {/* References */}
                      {application.references && application.references.length > 0 && (
@@ -836,8 +836,8 @@ export default function TenantDetailsPage() {
                              <div key={index} className="border rounded-lg p-4">
                                <h5 className="font-medium mb-3">Reference {index + 1}</h5>
                                <div className="grid gap-3 md:grid-cols-2">
-                                 <div>
-                                   <span className="text-sm text-muted-foreground">Name:</span>
+                      <div>
+                        <span className="text-sm text-muted-foreground">Name:</span>
                                    <p className="font-medium">{reference.name || "N/A"}</p>
                                  </div>
                                  <div>
@@ -847,15 +847,15 @@ export default function TenantDetailsPage() {
                                  <div>
                                    <span className="text-sm text-muted-foreground">Address:</span>
                                    <p className="font-medium">{reference.address || "N/A"}</p>
-                                 </div>
-                                 <div>
-                                   <span className="text-sm text-muted-foreground">Phone:</span>
+                      </div>
+                      <div>
+                        <span className="text-sm text-muted-foreground">Phone:</span>
                                    <p className="font-medium">{reference.phone || "N/A"}</p>
-                                 </div>
-                                 <div>
+                      </div>
+                      <div>
                                    <span className="text-sm text-muted-foreground">Length Known:</span>
                                    <p className="font-medium">{reference.length || "N/A"}</p>
-                                 </div>
+                      </div>
                                </div>
                              </div>
                            ))}
@@ -875,7 +875,7 @@ export default function TenantDetailsPage() {
                                  <div>
                                    <span className="text-sm text-muted-foreground">Make:</span>
                                    <p className="font-medium">{auto.make || "N/A"}</p>
-                                 </div>
+            </div>
                                  <div>
                                    <span className="text-sm text-muted-foreground">Model:</span>
                                    <p className="font-medium">{auto.model || "N/A"}</p>
@@ -897,7 +897,7 @@ export default function TenantDetailsPage() {
 
                      {/* Current Address */}
                      {application.currentAddress && (
-                       <div className="space-y-4">
+                  <div className="space-y-4">
                          <h4 className="font-semibold text-lg">Current Address</h4>
                          <div className="grid gap-4 md:grid-cols-2">
                            <div>
@@ -926,21 +926,21 @@ export default function TenantDetailsPage() {
                          <h4 className="font-semibold text-lg">Previous Residences</h4>
                          <div className="space-y-4">
                            {application.residences.map((residence: any, index: number) => (
-                             <div key={index} className="border rounded-lg p-4">
+                      <div key={index} className="border rounded-lg p-4">
                                <h5 className="font-medium mb-3">Residence {index + 1}</h5>
                                <div className="grid gap-3 md:grid-cols-2">
-                                 <div>
+                          <div>
                                    <span className="text-sm text-muted-foreground">Address:</span>
                                    <p className="font-medium">{residence.address || "N/A"}</p>
-                                 </div>
-                                 <div>
+                          </div>
+                          <div>
                                    <span className="text-sm text-muted-foreground">Landlord:</span>
                                    <p className="font-medium">{residence.landlord || "N/A"}</p>
-                                 </div>
-                                 <div>
+                          </div>
+                          <div>
                                    <span className="text-sm text-muted-foreground">From:</span>
                                    <p className="font-medium">{residence.from || "N/A"}</p>
-                                 </div>
+                          </div>
                                  <div>
                                    <span className="text-sm text-muted-foreground">To:</span>
                                    <p className="font-medium">{residence.to || "N/A"}</p>
@@ -949,10 +949,10 @@ export default function TenantDetailsPage() {
                                    <span className="text-sm text-muted-foreground">Phone:</span>
                                    <p className="font-medium">{residence.phone || "N/A"}</p>
                                  </div>
-                               </div>
-                             </div>
-                           ))}
-                         </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                        </div>
                      )}
 
@@ -1003,9 +1003,9 @@ export default function TenantDetailsPage() {
                      </p>
                    </div>
                  )}
-               </CardContent>
-             </Card>
-           </TabsContent>
+                </CardContent>
+              </Card>
+          </TabsContent>
 
           {/* Documents Tab */}
           <TabsContent value="documents" className="space-y-6">
@@ -1017,36 +1017,36 @@ export default function TenantDetailsPage() {
                 <div className="space-y-4">
                   {documents.length > 0 ? (
                     documents.map((document) => (
-                      <div key={document.id} className="flex items-center justify-between p-4 border rounded-lg">
-                        <div className="flex items-center gap-4">
-                          <FileText className="h-5 w-5 text-muted-foreground" />
-                          <div>
-                            <h4 className="font-medium">{document.name}</h4>
-                            <p className="text-sm text-muted-foreground">
-                              {getDocumentTypeLabel(document.type)} • Uploaded {document.uploadedAt.toLocaleDateString()}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          {getDocumentStatusBadge(document.status)}
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleViewDocument(document)}
-                          >
-                            <Eye className="h-4 w-4 mr-2" />
-                            View
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleDownloadDocument(document)}
-                          >
-                            <Download className="h-4 w-4 mr-2" />
-                            Download
-                          </Button>
+                    <div key={document.id} className="flex items-center justify-between p-4 border rounded-lg">
+                      <div className="flex items-center gap-4">
+                        <FileText className="h-5 w-5 text-muted-foreground" />
+                        <div>
+                          <h4 className="font-medium">{document.name}</h4>
+                          <p className="text-sm text-muted-foreground">
+                            {getDocumentTypeLabel(document.type)} • Uploaded {document.uploadedAt.toLocaleDateString()}
+                          </p>
                         </div>
                       </div>
+                      <div className="flex items-center gap-2">
+                        {getDocumentStatusBadge(document.status)}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleViewDocument(document)}
+                        >
+                          <Eye className="h-4 w-4 mr-2" />
+                          View
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleDownloadDocument(document)}
+                        >
+                          <Download className="h-4 w-4 mr-2" />
+                          Download
+                        </Button>
+                      </div>
+                    </div>
                     ))
                   ) : (
                     <div className="text-center py-8">

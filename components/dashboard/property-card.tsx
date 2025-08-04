@@ -13,6 +13,7 @@ interface PropertyCardProps {
   onCreateLease: (id: string) => void
   onSendNotice: (id: string) => void
   onSendInvitation: (id: string) => void
+  onEditProperty: (id: string) => void // Added
   onFindTenants?: (id: string) => void
   onViewIncome?: (id: string) => void
   onMakeAvailable?: (id: string) => void
@@ -30,6 +31,7 @@ export function PropertyCard({
   onCreateLease,
   onSendNotice,
   onSendInvitation,
+  onEditProperty, // Added
   onFindTenants,
   onViewIncome,
   onMakeAvailable,
@@ -115,8 +117,12 @@ export function PropertyCard({
 
         <div className="grid grid-cols-2 gap-2">
           <Button variant="outline" onClick={() => onViewProperty(property.id)}>
-          <Eye className="h-4 w-4 mr-2" />
+            <Eye className="h-4 w-4 mr-2" />
             View
+          </Button>
+          <Button variant="outline" onClick={() => onEditProperty(property.id)}>
+            <FileText className="h-4 w-4 mr-2" />
+            Edit
           </Button>
           {!leased && property.status !== "occupied" && (
             <Button variant="outline" onClick={() => onCreateLease(property.id)}>

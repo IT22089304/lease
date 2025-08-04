@@ -62,7 +62,7 @@ export function Header() {
         return [
           { label: "Dashboard", href: "/renter/dashboard", icon: Home },
           { label: "Payments", href: "/payments", icon: CreditCard },
-          { label: "Notices", href: "/renter/notices", icon: FileText },
+          { label: "Dashboard", href: "/renter/dashboard", icon: FileText },
           { label: "Profile", href: "/renter/profile", icon: User },
         ]
       case "admin":
@@ -89,14 +89,14 @@ export function Header() {
     } else {
       // For renters, navigate based on notification type
       if (item._type === "invitation") {
-        window.location.href = `/renter/invitations/${item.id}`;
+        window.location.href = `/renter/applications/new?invitationId=${item.id}`;
       } else if (item._type === "notice") {
         // For notices, navigate to the appropriate page based on type
         switch (item.type) {
           case "application_submitted":
           case "application_approved":
           case "application_rejected":
-            window.location.href = "/applications";
+            window.location.href = "/dashboard";
             break;
           case "tenant_moved_in":
             window.location.href = "/properties";
@@ -108,7 +108,7 @@ export function Header() {
             window.location.href = "/notifications?tab=lease";
             break;
           default:
-            window.location.href = "/renter/notices";
+            window.location.href = "/renter/dashboard";
         }
       }
     }
@@ -267,7 +267,7 @@ export function Header() {
                   <span>Mark All as Read</span>
                 </DropdownMenuItem>
               )}
-              <DropdownMenuItem onClick={() => (window.location.href = user.role === "landlord" ? "/dashboard/notifications" : "/renter/notices")}>
+              <DropdownMenuItem onClick={() => (window.location.href = user.role === "landlord" ? "/dashboard/notifications" : "/renter/dashboard")}>
                 <FileText className="mr-2 h-4 w-4" />
                 <span>View All</span>
               </DropdownMenuItem>

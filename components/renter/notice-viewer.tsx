@@ -141,7 +141,7 @@ export function NoticeViewer({ notice, isOpen, onClose }: NoticeViewerProps) {
             <Button onClick={onClose} className="flex-1">
               Mark as Read
             </Button>
-            <Button variant="outline" onClick={() => (window.location.href = "/renter/notices")}>
+            <Button variant="outline" onClick={() => (window.location.href = "/renter/dashboard")}>
               View All Notices
             </Button>
           </div>
