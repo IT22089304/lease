@@ -68,12 +68,49 @@ export const leaseService = {
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     })
+    
+    // Generate monthly payment schedule for the lease
+    if (lease.status === "active") {
+      try {
+        const { invoiceService } = await import("./invoice-service")
+        await invoiceService.generateMonthlyPaymentSchedule(
+          docRef.id,
+          lease.startDate,
+          lease.endDate,
+          lease.monthlyRent
+        )
+      } catch (error) {
+        console.error("Error generating monthly payment schedule:", error)
+        // Don't fail the lease creation if payment schedule generation fails
+      }
+    }
+    
     return docRef.id
   },
 
   // Update a lease
   async updateLease(leaseId: string, lease: Partial<Lease>): Promise<void> {
     const docRef = doc(db, "leases", leaseId)
+    
+    // If status is being updated to active, generate monthly payment schedule
+    if (lease.status === "active") {
+      try {
+        const currentLease = await this.getLease(leaseId)
+        if (currentLease) {
+          const { invoiceService } = await import("./invoice-service")
+          await invoiceService.generateMonthlyPaymentSchedule(
+            leaseId,
+            currentLease.startDate,
+            currentLease.endDate,
+            currentLease.monthlyRent
+          )
+        }
+      } catch (error) {
+        console.error("Error generating monthly payment schedule:", error)
+        // Don't fail the lease update if payment schedule generation fails
+      }
+    }
+    
     await updateDoc(docRef, {
       ...lease,
       updatedAt: serverTimestamp(),

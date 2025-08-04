@@ -31,7 +31,7 @@ interface PDFViewerProps {
   isLandlordView?: boolean
   selectedNotice?: any
   onDownload?: () => void
-  onSendInvoice?: () => void
+  onSendInvoice?: (e?: React.MouseEvent) => void
 }
 
 export function PDFViewer({ 

@@ -1,10 +1,12 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { FileText, Clock, CheckCircle, XCircle, Eye, Download, HelpCircle, Bell, X, User, Building, Car, Home, Briefcase, Users, Phone, Mail, Calendar, DollarSign, MapPin } from "lucide-react"
+import { useRouter, useSearchParams } from "next/navigation"
+import { FileText, Bell, CheckCircle, XCircle, Eye, Plus, Search, Filter, Calendar, MapPin, User, Building, Car, Home, Briefcase, Users, Phone, Mail, DollarSign, Clock, HelpCircle, Download, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   DropdownMenu,
@@ -14,126 +16,189 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { useAuth } from "@/lib/auth"
-import type { LeaseApplication, Property } from "@/types"
 import { applicationService } from "@/lib/services/application-service"
-import { propertyService } from "@/lib/services/property-service"
 import { notificationService } from "@/lib/services/notification-service"
+import { propertyService } from "@/lib/services/property-service"
+import type { LeaseApplication, Property } from "@/types"
 import { toDateString } from "@/lib/utils"
-import { useRouter } from "next/navigation"
+import { toast } from "sonner"
 
 export default function ApplicationsPage() {
   const { user } = useAuth()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [applications, setApplications] = useState<LeaseApplication[]>([])
   const [properties, setProperties] = useState<Property[]>([])
   const [notifications, setNotifications] = useState<any[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
   const [selectedApplication, setSelectedApplication] = useState<LeaseApplication | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [searchTerm, setSearchTerm] = useState("")
+  const [statusFilter, setStatusFilter] = useState<string>("all")
 
   useEffect(() => {
-    if (!user || !user.id) return;
+    if (!user?.id) return;
     async function fetchData(userId: string) {
-      const [realApplications, realNotifications, unreadCount] = await Promise.all([
-        applicationService.getApplicationsForLandlord(userId),
-        notificationService.getLandlordNotifications(userId),
-        notificationService.getUnreadCount(userId)
-      ]);
-      
-      // Filter to only show submitted applications
-      const submittedApplications = realApplications.filter((app: any) => app.status === "submitted");
-      setApplications(
-        submittedApplications.map(app => ({
-          ...app,
-        })) as LeaseApplication[]
-      );
-      
-      // Set notifications and unread count
-      setNotifications(realNotifications);
-      setUnreadCount(unreadCount);
-      
-      // Fetch properties for this landlord
-      const props = await propertyService.getLandlordProperties(userId);
-      setProperties(props);
+      try {
+        const [applicationsData, propertiesData, notificationsData, unreadCountData] = await Promise.all([
+          applicationService.getApplicationsForLandlord(userId),
+          propertyService.getLandlordProperties(userId),
+          notificationService.getLandlordNotifications(userId),
+          notificationService.getUnreadCount(userId)
+        ])
+        
+        // Filter to only submitted applications
+        const submittedApplications = applicationsData.filter((app: any) => app.status === "submitted")
+        setApplications(submittedApplications as LeaseApplication[])
+        setProperties(propertiesData)
+        setNotifications(notificationsData)
+        setUnreadCount(unreadCountData)
+      } catch (error) {
+        console.error("Error fetching data:", error)
+        toast.error("Failed to load applications")
+      } finally {
+        setIsLoading(false)
+      }
     }
-    fetchData(user.id);
-  }, [user?.id]);
+    fetchData(user.id)
+  }, [user])
 
   const getStatusBadge = (status: LeaseApplication["status"]) => {
-    const variants = {
-      draft: { variant: "secondary", icon: FileText, label: "Draft" },
-      submitted: { variant: "default", icon: Clock, label: "Submitted" },
-      under_review: { variant: "default", icon: Eye, label: "Under Review" },
-      approved: { variant: "default", icon: CheckCircle, label: "Approved" },
-      rejected: { variant: "destructive", icon: XCircle, label: "Rejected" },
-    };
-    const config = variants[status] || variants["draft"];
-    if (!config) {
-      return (
-        <Badge variant="outline" className="flex items-center gap-1">
-          <HelpCircle className="h-3 w-3" />
-          Unknown
-        </Badge>
-      );
+    const statusConfig = {
+      draft: { label: "Draft", variant: "secondary" as const },
+      incomplete: { label: "Incomplete", variant: "secondary" as const },
+      submitted: { label: "Submitted", variant: "default" as const },
+      under_review: { label: "Under Review", variant: "default" as const },
+      approved: { label: "Approved", variant: "default" as const },
+      rejected: { label: "Rejected", variant: "destructive" as const },
     }
-    const Icon = config.icon;
-    return (
-      <Badge variant={config.variant as any} className="flex items-center gap-1">
-        <Icon className="h-3 w-3" />
-        {config.label}
-      </Badge>
-    );
+    
+    const config = statusConfig[status] || statusConfig.draft
+    return <Badge variant={config.variant}>{config.label}</Badge>
   }
 
   const getPropertyAddress = (propertyId: string) => {
     const property = properties.find((p) => p.id === propertyId)
-    if (!property) return "Unknown Property"
+    if (!property) return propertyId
     const addr = property.address
-    return `${addr.street}${addr.unit ? `, Unit ${addr.unit}` : ""}, ${addr.city}, ${addr.state}`
+    return `${addr.street}${addr.unit ? ", Unit " + addr.unit : ""}, ${addr.city}, ${addr.state}`
   }
 
   const handleApprove = async (applicationId: string) => {
-    await applicationService.updateApplicationStatus(applicationId, "approved")
-    setApplications((prev) =>
-      prev.map((app) => (app.id === applicationId ? { ...app, status: "approved", reviewedAt: new Date() } : app)),
-    )
-    // Find the approved application
-    const app = applications.find((a) => a.id === applicationId)
-    if (app) {
-      // Prepare query params
-      const params = new URLSearchParams({
-        propertyId: app.propertyId,
-        renterEmail: app.renterEmail,
-      })
-      if (app.applicationData?.personalInfo?.fullName) {
-        params.append("fullName", app.applicationData.personalInfo.fullName)
-      }
-      if (app.applicationData?.personalInfo?.phone) {
-        params.append("phone", app.applicationData.personalInfo.phone)
-      }
-      router.push(`/wizard/lease?${params.toString()}`)
+    try {
+      await applicationService.updateApplicationStatus(applicationId, "approved")
+      setApplications(prev => 
+        prev.map(app => 
+          app.id === applicationId ? { ...app, status: "approved" as const } : app
+        )
+      )
+      toast.success("Application approved successfully")
+    } catch (error) {
+      console.error("Error approving application:", error)
+      toast.error("Failed to approve application")
     }
   }
 
   const handleReject = async (applicationId: string) => {
-    await applicationService.updateApplicationStatus(applicationId, "rejected")
-    setApplications((prev) =>
-      prev.map((app) => (app.id === applicationId ? { ...app, status: "rejected", reviewedAt: new Date() } : app)),
-    )
+    try {
+      await applicationService.updateApplicationStatus(applicationId, "rejected")
+      setApplications(prev => 
+        prev.map(app => 
+          app.id === applicationId ? { ...app, status: "rejected" as const } : app
+        )
+      )
+      toast.success("Application rejected successfully")
+    } catch (error) {
+      console.error("Error rejecting application:", error)
+      toast.error("Failed to reject application")
+    }
   }
 
-  const filterApplications = (status?: LeaseApplication["status"]) => {
-    return status ? applications.filter((app) => app.status === status) : applications
+  const filterApplications = (status?: LeaseApplication["status"] | "all") => {
+    let filtered = applications
+    
+    if (status && status !== "all") {
+      filtered = filtered.filter(app => app.status === status)
+    }
+    
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase()
+      filtered = filtered.filter(app => 
+        (app as any).fullName?.toLowerCase().includes(term) ||
+        app.renterEmail?.toLowerCase().includes(term) ||
+        getPropertyAddress(app.propertyId).toLowerCase().includes(term)
+      )
+    }
+    
+    return filtered
   }
+
+  const handleNotificationClick = async (notification: any) => {
+    // Mark as read if not already read
+    if (!notification.readAt) {
+      await notificationService.markAsRead(notification.id);
+      setUnreadCount(prev => Math.max(0, prev - 1));
+      setNotifications(prev => 
+        prev.map(n => n.id === notification.id ? { ...n, readAt: new Date() } : n)
+      );
+    }
+
+    // Navigate based on notification type
+    if (notification.navigation) {
+      const { path, params } = notification.navigation;
+      
+      if (path) {
+        let url = path;
+        
+        // Add query parameters if they exist
+        if (params) {
+          const searchParams = new URLSearchParams();
+          Object.entries(params).forEach(([key, value]) => {
+            if (value && typeof value === 'string') searchParams.append(key, value);
+          });
+          if (searchParams.toString()) {
+            url += `?${searchParams.toString()}`;
+          }
+        }
+        
+        router.push(url);
+      }
+    } else {
+      // Fallback navigation based on notification type
+      switch (notification.type) {
+        case "application_submitted":
+        case "application_approved":
+        case "application_rejected":
+          router.push("/applications");
+          break;
+        case "tenant_moved_in":
+          router.push("/properties");
+          break;
+        case "payment_received":
+          router.push("/dashboard/incomes");
+          break;
+        case "lease_completed":
+          router.push("/notifications?tab=lease");
+          break;
+        default:
+          router.push("/notifications");
+      }
+    }
+  };
+
+  const filteredApplications = filterApplications(statusFilter as LeaseApplication["status"])
 
   if (!user || user.role !== "landlord") {
-    return <div>Access denied. Landlord access required.</div>
+    return (
+      <div className="container mx-auto p-8">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold text-red-600">Access Denied</h1>
+          <p className="text-muted-foreground">You don't have permission to view this page.</p>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -189,15 +254,7 @@ export default function ApplicationsPage() {
                       <DropdownMenuItem
                         key={notification.id}
                         className="flex items-start gap-3 p-3 cursor-pointer hover:bg-muted/50"
-                        onClick={async () => {
-                          if (!notification.readAt) {
-                            await notificationService.markAsRead(notification.id);
-                            setUnreadCount(prev => Math.max(0, prev - 1));
-                            setNotifications(prev => 
-                              prev.map(n => n.id === notification.id ? { ...n, readAt: new Date() } : n)
-                            );
-                          }
-                        }}
+                        onClick={() => handleNotificationClick(notification)}
                       >
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-1">
@@ -240,49 +297,99 @@ export default function ApplicationsPage() {
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Ready for Review</CardTitle>
-            <Clock className="h-4 w-4 text-warning" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-warning">
-              {applications.filter((a) => a.status === "submitted").length}
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Under Review</CardTitle>
-            <Eye className="h-4 w-4 text-blue-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-blue-600">
-              {applications.filter((a) => a.status === "under_review").length}
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Average Response Time</CardTitle>
-            <Clock className="h-4 w-4 text-muted-foreground" />
+            <FileText className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {applications.length > 0 ? "24h" : "N/A"}
+              {applications.filter(app => app.status === "under_review").length}
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Approved</CardTitle>
+            <CheckCircle className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {applications.filter(app => app.status === "approved").length}
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Rejected</CardTitle>
+            <XCircle className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {applications.filter(app => app.status === "rejected").length}
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Applications Tabs */}
-      <Tabs defaultValue="all" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="all">All Submitted ({applications.length})</TabsTrigger>
-          <TabsTrigger value="submitted">New ({filterApplications("submitted").length})</TabsTrigger>
-          <TabsTrigger value="under_review">Under Review ({filterApplications("under_review").length})</TabsTrigger>
-        </TabsList>
+      {/* Search and Filter */}
+      <div className="flex flex-col sm:flex-row gap-4">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+          <Input
+            placeholder="Search applications..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="pl-10"
+          />
+        </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" className="flex items-center gap-2">
+              <Filter className="h-4 w-4" />
+              Filter
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent>
+            <DropdownMenuItem onClick={() => setStatusFilter("all")}>
+              All Applications
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setStatusFilter("submitted")}>
+              Submitted
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setStatusFilter("under_review")}>
+              Under Review
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setStatusFilter("approved")}>
+              Approved
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setStatusFilter("rejected")}>
+              Rejected
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
 
-        <TabsContent value="all" className="space-y-6">
-          {applications.map((application) => (
+      {/* Applications List */}
+      <div className="space-y-4">
+        {isLoading ? (
+          <div className="text-center py-8">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+            <p className="text-muted-foreground mt-2">Loading applications...</p>
+          </div>
+        ) : filteredApplications.length === 0 ? (
+          <Card>
+            <CardContent className="text-center py-8">
+              <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+              <h3 className="text-lg font-semibold mb-2">No applications found</h3>
+              <p className="text-muted-foreground">
+                {searchTerm || statusFilter !== "all" 
+                  ? "Try adjusting your search or filter criteria."
+                  : "No applications have been submitted yet."
+                }
+              </p>
+            </CardContent>
+          </Card>
+        ) : (
+          filteredApplications.map((application) => (
             <ApplicationCard
               key={application.id}
               application={application}
@@ -291,48 +398,9 @@ export default function ApplicationsPage() {
               onReject={handleReject}
               onViewDetails={() => setSelectedApplication(application)}
             />
-          ))}
-        </TabsContent>
-
-        <TabsContent value="submitted" className="space-y-6">
-          {filterApplications("submitted").map((application) => (
-            <ApplicationCard
-              key={application.id}
-              application={application}
-              propertyAddress={getPropertyAddress(application.propertyId)}
-              onApprove={handleApprove}
-              onReject={handleReject}
-              onViewDetails={() => setSelectedApplication(application)}
-            />
-          ))}
-        </TabsContent>
-
-        <TabsContent value="under_review" className="space-y-6">
-          {filterApplications("under_review").map((application) => (
-            <ApplicationCard
-              key={application.id}
-              application={application}
-              propertyAddress={getPropertyAddress(application.propertyId)}
-              onApprove={handleApprove}
-              onReject={handleReject}
-              onViewDetails={() => setSelectedApplication(application)}
-            />
-          ))}
-        </TabsContent>
-      </Tabs>
-
-      {applications.length === 0 && (
-        <Card>
-          <CardContent className="text-center py-12">
-            <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-            <h3 className="text-lg font-medium mb-2">No submitted applications yet</h3>
-            <p className="text-muted-foreground mb-6">
-              Submitted applications will appear here when renters complete and submit their applications
-            </p>
-            <Button onClick={() => (window.location.href = "/invitations")}>Send Invitations</Button>
-          </CardContent>
-        </Card>
-      )}
+          ))
+        )}
+      </div>
 
       {/* Application Details Modal */}
       {selectedApplication && (

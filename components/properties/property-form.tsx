@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -10,9 +10,13 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Card, CardContent } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
+import { X, Upload, Image as ImageIcon } from "lucide-react"
 import type { Property } from "@/types"
+import { toast } from "sonner"
+import { imageUploadService } from "@/lib/services/image-upload-service"
 
 type PropertyFormData = {
+  title: string
   address: {
     street: string
     unit?: string
@@ -41,12 +45,14 @@ type PropertyFormData = {
 
 interface PropertyFormProps {
   property?: PropertyFormData | null
-  onSave: (property: PropertyFormData) => void
+  onSave: (property: PropertyFormData, images: File[]) => void
   onCancel: () => void
+  loading?: boolean
 }
 
-export function PropertyForm({ property, onSave, onCancel }: PropertyFormProps) {
+export function PropertyForm({ property, onSave, onCancel, loading = false }: PropertyFormProps) {
   const [formData, setFormData] = useState<PropertyFormData>({
+    title: "",
     address: {
       street: "",
       unit: "",
@@ -68,16 +74,27 @@ export function PropertyForm({ property, onSave, onCancel }: PropertyFormProps) 
     petPolicy: { allowed: false, maxPets: 1, fee: 0, restrictions: "" },
   })
 
+  const [imageFiles, setImageFiles] = useState<File[]>([])
+  const [imageUrls, setImageUrls] = useState<string[]>([])
+  const [isDragOver, setIsDragOver] = useState(false)
+
   // Only update form data when property prop changes
   useEffect(() => {
     if (property) {
       setFormData(property)
+      if (property.images) {
+        setImageUrls(property.images)
+      }
     }
   }, [property])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    onSave(formData)
+    if (loading) return // Prevent multiple submissions
+    
+    // Pass image files separately to parent component
+    const formDataWithoutImages = { ...formData, images: imageUrls }
+    onSave(formDataWithoutImages, imageFiles)
   }
 
   const updateField = (field: string, value: any) => {
@@ -89,6 +106,50 @@ export function PropertyForm({ property, onSave, onCancel }: PropertyFormProps) 
       ...prev,
       address: { ...prev.address, [field]: value },
     }))
+  }
+
+  const handleImageUpload = useCallback((files: FileList | null) => {
+    if (!files) return
+
+    const newFiles = Array.from(files).filter(file => {
+      const validation = imageUploadService.validateImage(file)
+      if (!validation.isValid) {
+        toast.error(validation.error || 'Invalid image file')
+        return false
+      }
+      return true
+    })
+
+    if (newFiles.length + imageFiles.length > 10) {
+      toast.error('Maximum 10 images allowed')
+      return
+    }
+
+    setImageFiles(prev => [...prev, ...newFiles])
+  }, [imageFiles])
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragOver(true)
+  }, [])
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragOver(false)
+  }, [])
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragOver(false)
+    handleImageUpload(e.dataTransfer.files)
+  }, [handleImageUpload])
+
+  const removeImage = (index: number, isFile: boolean) => {
+    if (isFile) {
+      setImageFiles(prev => prev.filter((_, i) => i !== index))
+    } else {
+      setImageUrls(prev => prev.filter((_, i) => i !== index))
+    }
   }
 
   const amenityOptions = [
@@ -104,8 +165,29 @@ export function PropertyForm({ property, onSave, onCancel }: PropertyFormProps) 
     "Parking",
   ]
 
+  const allImages = [...imageUrls, ...imageFiles.map(file => URL.createObjectURL(file))]
+
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
+      {/* Property Title */}
+      <Card>
+        <CardContent className="pt-6">
+          <h3 className="text-lg font-medium mb-4">Property Information</h3>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="title">Property Title*</Label>
+              <Input
+                id="title"
+                value={formData.title}
+                onChange={(e) => updateField("title", e.target.value)}
+                placeholder="Enter property name/title"
+                required
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Property Address */}
       <Card>
         <CardContent className="pt-6">
@@ -204,6 +286,73 @@ export function PropertyForm({ property, onSave, onCancel }: PropertyFormProps) 
                 </Select>
               </div>
             </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Property Images */}
+      <Card>
+        <CardContent className="pt-6">
+          <h3 className="text-lg font-medium mb-4">Property Images</h3>
+          <div className="space-y-4">
+            {/* Image Upload Area */}
+            <div
+              className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
+                isDragOver 
+                  ? 'border-primary bg-primary/5' 
+                  : 'border-gray-300 hover:border-gray-400'
+              }`}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+            >
+              <Upload className="mx-auto h-12 w-12 text-gray-400 mb-4" />
+              <p className="text-sm text-gray-600 mb-2">
+                Drag and drop images here, or click to select files
+              </p>
+              <p className="text-xs text-gray-500 mb-4">
+                Maximum 10 images, 5MB each. Supported formats: JPG, PNG, GIF
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => document.getElementById('image-upload')?.click()}
+                disabled={allImages.length >= 10}
+              >
+                <ImageIcon className="h-4 w-4 mr-2" />
+                Select Images
+              </Button>
+              <input
+                id="image-upload"
+                type="file"
+                multiple
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => handleImageUpload(e.target.files)}
+              />
+            </div>
+
+            {/* Image Preview Grid */}
+            {allImages.length > 0 && (
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {allImages.map((imageUrl, index) => (
+                  <div key={index} className="relative group">
+                    <img
+                      src={imageUrl}
+                      alt={`Property image ${index + 1}`}
+                      className="w-full h-32 object-cover rounded-lg"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeImage(index, index >= imageUrls.length)}
+                      className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -400,10 +549,17 @@ export function PropertyForm({ property, onSave, onCancel }: PropertyFormProps) 
 
       {/* Action Buttons */}
       <div className="flex gap-4">
-        <Button type="submit" className="flex-1">
-          {property ? "Update Property" : "Add Property"}
+        <Button type="submit" className="flex-1" disabled={loading}>
+          {loading ? (
+            <>
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+              {property ? "Updating..." : "Adding..."}
+            </>
+          ) : (
+            property ? "Update Property" : "Add Property"
+          )}
         </Button>
-        <Button type="button" variant="outline" onClick={onCancel} className="flex-1">
+        <Button type="button" variant="outline" onClick={onCancel} className="flex-1" disabled={loading}>
           Cancel
         </Button>
       </div>

@@ -50,6 +50,7 @@ export interface Address {
 export interface Property {
   id: string
   landlordId: string
+  title: string
   address: Address
   type: string
   bedrooms: number
@@ -134,6 +135,7 @@ export interface RentPayment {
   paymentMethod?: string
   transactionId?: string
   paymentType?: "monthly_rent" | "application_fee" | "pet_fee" | "security_deposit"
+  invoiceId?: string
   createdAt: Date
   renterId?: string
   landlordId?: string

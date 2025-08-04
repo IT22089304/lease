@@ -13,6 +13,7 @@ export default function EditPropertyPage() {
   const params = useParams<{ id: string }>()
   const [property, setProperty] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     async function fetchProperty() {
@@ -25,16 +26,23 @@ export default function EditPropertyPage() {
     fetchProperty()
   }, [params?.id])
 
-  const handleSave = async (updatedData: any) => {
+  const handleSave = async (updatedData: any, imageFiles: File[]) => {
     try {
-      setLoading(true)
-      await propertyService.updateProperty(params.id, updatedData)
+      setSaving(true)
+      
+      // Track which images were removed (if any)
+      const originalImages = property.images || []
+      const updatedImages = updatedData.images || []
+      const deletedImages = originalImages.filter((img: string) => !updatedImages.includes(img))
+      
+      await propertyService.updateProperty(params.id, updatedData, imageFiles, deletedImages)
       toast.success("Property updated successfully")
-    router.push(`/properties/${params.id}`)
+      router.push(`/properties/${params.id}`)
     } catch (error) {
+      console.error("Error updating property:", error)
       toast.error("Failed to update property")
     } finally {
-      setLoading(false)
+      setSaving(false)
     }
   }
 
@@ -62,6 +70,7 @@ export default function EditPropertyPage() {
         property={property}
         onSave={handleSave}
         onCancel={() => router.push(`/properties/${params.id}`)}
+        loading={saving}
       />
     </div>
   )

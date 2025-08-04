@@ -20,7 +20,10 @@ export function PropertyDetailsView({ property, actionButton, tabs, activeTab, s
     <div className="container mx-auto p-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4">
         <div>
-          <h1 className="text-2xl font-bold">{formatAddress(property.address)}</h1>
+          <h1 className="text-2xl font-bold">{property.title || formatAddress(property.address)}</h1>
+          {property.title && (
+            <p className="text-muted-foreground mt-1">{formatAddress(property.address)}</p>
+          )}
           <div className="flex items-center gap-2 mt-2">
             <Badge className="capitalize">{property.type}</Badge>
             <Badge variant={property.status === "available" ? "default" : "secondary"}>

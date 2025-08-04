@@ -4,12 +4,18 @@ import { db } from "../firebase"
 export interface Notification {
   id: string
   landlordId: string
-  type: "application_submitted" | "application_approved" | "application_rejected" | "invitation_sent" | "tenant_moved_in"
+  type: "application_submitted" | "application_approved" | "application_rejected" | "invitation_sent" | "tenant_moved_in" | "payment_received" | "lease_completed" | "invoice_sent"
   title: string
   message: string
   data?: any
   readAt?: Date
   createdAt: Date
+  navigation?: {
+    type: "page" | "modal" | "external"
+    path?: string
+    params?: Record<string, string | undefined>
+    action?: string
+  }
 }
 
 export const notificationService = {
@@ -75,6 +81,66 @@ export const notificationService = {
     await batch.commit()
   },
 
+  // Get navigation data for notification type
+  getNotificationNavigation(type: Notification["type"], data?: any) {
+    switch (type) {
+      case "application_submitted":
+        return {
+          type: "page" as const,
+          path: "/applications",
+          params: { tab: "submitted" },
+          action: "view_applications"
+        }
+      case "application_approved":
+        return {
+          type: "page" as const,
+          path: "/applications",
+          params: { tab: "under_review" },
+          action: "view_applications"
+        }
+      case "application_rejected":
+        return {
+          type: "page" as const,
+          path: "/applications",
+          params: { tab: "all" },
+          action: "view_applications"
+        }
+      case "tenant_moved_in":
+        return {
+          type: "page" as const,
+          path: "/properties",
+          params: data?.propertyId ? { propertyId: data.propertyId.toString() } : undefined,
+          action: "view_property"
+        }
+      case "payment_received":
+        return {
+          type: "page" as const,
+          path: "/dashboard/incomes",
+          action: "view_income"
+        }
+      case "lease_completed":
+        return {
+          type: "page" as const,
+          path: "/notifications",
+          params: { tab: "lease" },
+          action: "view_lease_notifications"
+        }
+      case "invoice_sent":
+        return {
+          type: "page" as const,
+          path: "/notifications",
+          params: { tab: "sent" },
+          action: "view_sent_notifications"
+        }
+      default:
+        return {
+          type: "page" as const,
+          path: "/notifications",
+          action: "view_all_notifications"
+        }
+    }
+  },
+
   // Create application submitted notification
   async notifyApplicationSubmitted(landlordId: string, applicationData: any) {
     const notification: Omit<Notification, "id" | "createdAt"> = {
@@ -87,7 +153,10 @@ export const notificationService = {
         propertyId: applicationData.propertyId,
         renterEmail: applicationData.renterEmail,
         fullName: applicationData.fullName,
-      }
+      },
+      navigation: this.getNotificationNavigation("application_submitted", {
+        propertyId: applicationData.propertyId
+      })
     }
     
     return await this.createNotification(notification)
@@ -110,7 +179,10 @@ export const notificationService = {
         applicationId,
         status,
         renterEmail,
-      }
+      },
+      navigation: this.getNotificationNavigation(status === "approved" ? "application_approved" : "application_rejected", {
+        applicationId
+      })
     }
     
     return await this.createNotification(notification)
@@ -127,7 +199,49 @@ export const notificationService = {
         propertyId,
         renterEmail,
         propertyAddress,
-      }
+      },
+      navigation: this.getNotificationNavigation("tenant_moved_in", {
+        propertyId
+      })
+    }
+    
+    return await this.createNotification(notification)
+  },
+
+  // Create payment received notification
+  async notifyPaymentReceived(landlordId: string, propertyId: string, renterEmail: string, amount: number) {
+    const notification: Omit<Notification, "id" | "createdAt"> = {
+      landlordId,
+      type: "payment_received",
+      title: "Payment Received",
+      message: `Payment of $${amount.toLocaleString()} has been received from ${renterEmail}.`,
+      data: {
+        propertyId,
+        renterEmail,
+        amount,
+      },
+      navigation: this.getNotificationNavigation("payment_received", {
+        propertyId
+      })
+    }
+    
+    return await this.createNotification(notification)
+  },
+
+  // Create lease completed notification
+  async notifyLeaseCompleted(landlordId: string, propertyId: string, renterEmail: string) {
+    const notification: Omit<Notification, "id" | "createdAt"> = {
+      landlordId,
+      type: "lease_completed",
+      title: "Lease Agreement Completed",
+      message: `A lease agreement has been completed for your property.`,
+      data: {
+        propertyId,
+        renterEmail,
+      },
+      navigation: this.getNotificationNavigation("lease_completed", {
+        propertyId
+      })
     }
     
     return await this.createNotification(notification)

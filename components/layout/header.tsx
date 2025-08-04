@@ -56,10 +56,7 @@ export function Header() {
         return [
           { label: "Dashboard", href: "/dashboard", icon: Home },
           { label: "Properties", href: "/properties", icon: Home },
-          { label: "Invitations", href: "/invitations", icon: Send },
-          { label: "Applications", href: "/applications", icon: FileText },
           { label: "Incomes", href: "/dashboard/incomes", icon: CreditCard },
-          { label: "Notifications", href: "/notifications", icon: Bell },
         ]
       case "renter":
         return [
@@ -78,17 +75,42 @@ export function Header() {
   const navigation = getRoleSpecificNavigation()
 
   const handleNotificationClick = (item: Notice | any) => {
-    if ('readAt' in item) {
-      // It's a notice
-      if (!item.readAt) {
-        noticeService.markAsRead(item.id);
-        setNotices(prev => prev.map(n => n.id === item.id ? { ...n, readAt: new Date() } : n));
-        setUnreadCount(prev => Math.max(0, prev - 1));
-      }
-      window.location.href = "/renter/notices";
+    // Mark as read if not already read
+    if ('readAt' in item && !item.readAt) {
+      noticeService.markAsRead(item.id);
+      setNotices(prev => prev.map(n => n.id === item.id ? { ...n, readAt: new Date() } : n));
+      setUnreadCount(prev => Math.max(0, prev - 1));
+    }
+
+    // Navigate based on notification type and user role
+    if (user.role === "landlord") {
+      // For landlords, navigate to the notifications page
+      window.location.href = "/dashboard/notifications";
     } else {
-      // It's an invitation
-      window.location.href = `/renter/invitations/${item.id}`;
+      // For renters, navigate based on notification type
+      if (item._type === "invitation") {
+        window.location.href = `/renter/invitations/${item.id}`;
+      } else if (item._type === "notice") {
+        // For notices, navigate to the appropriate page based on type
+        switch (item.type) {
+          case "application_submitted":
+          case "application_approved":
+          case "application_rejected":
+            window.location.href = "/applications";
+            break;
+          case "tenant_moved_in":
+            window.location.href = "/properties";
+            break;
+          case "payment_received":
+            window.location.href = "/dashboard/incomes";
+            break;
+          case "lease_completed":
+            window.location.href = "/notifications?tab=lease";
+            break;
+          default:
+            window.location.href = "/renter/notices";
+        }
+      }
     }
   };
 
@@ -245,9 +267,9 @@ export function Header() {
                   <span>Mark All as Read</span>
                 </DropdownMenuItem>
               )}
-              <DropdownMenuItem onClick={() => (window.location.href = "/renter/notices")}>
+              <DropdownMenuItem onClick={() => (window.location.href = user.role === "landlord" ? "/dashboard/notifications" : "/renter/notices")}>
                 <FileText className="mr-2 h-4 w-4" />
-                <span>View All Notices</span>
+                <span>View All</span>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

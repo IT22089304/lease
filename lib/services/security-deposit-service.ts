@@ -9,6 +9,7 @@ export type SecurityDeposit = {
   paidDate: Date;
   paymentMethod: string;
   transactionId?: string;
+  invoiceId?: string;
   createdAt?: Date;
 };
 

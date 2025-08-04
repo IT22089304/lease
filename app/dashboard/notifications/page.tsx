@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Plus, Eye, Trash2, Calendar, AlertTriangle, CheckCircle, FileText, Home, Download, Send, Bell } from "lucide-react"
+import { Eye, Trash2, Calendar, AlertTriangle, CheckCircle, FileText, Home, Download, Send, Bell } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -17,7 +17,6 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { PDFViewer } from "@/components/ui/pdf-viewer"
 import { InvoiceForm } from "@/components/notices/invoice-form"
-import { NoticeForm } from "@/components/notices/notice-form"
 import { useAuth } from "@/lib/auth"
 import type { Notice, Property } from "@/types"
 import { noticeService } from "@/lib/services/notice-service"
@@ -28,14 +27,12 @@ import { db } from "@/lib/firebase"
 import { toast } from "sonner"
 import { toDateString } from "@/lib/utils"
 
-export default function NotificationsPage() {
+export default function ReceivedNotificationsPage() {
   const { user } = useAuth()
-  const [sentNotices, setSentNotices] = useState<Notice[]>([])
   const [receivedNotices, setReceivedNotices] = useState<Notice[]>([])
   const [leaseNotices, setLeaseNotices] = useState<Notice[]>([])
   const [applicationNotifications, setApplicationNotifications] = useState<any[]>([])
   const [properties, setProperties] = useState<Property[]>([])
-  const [isFormOpen, setIsFormOpen] = useState(false)
   const [activeTab, setActiveTab] = useState("all")
   const [unreadCount, setUnreadCount] = useState(0)
   const [isPdfViewerOpen, setIsPdfViewerOpen] = useState(false)
@@ -45,6 +42,8 @@ export default function NotificationsPage() {
   const [selectedNotice, setSelectedNotice] = useState<Notice | null>(null)
   const [isInvoiceFormOpen, setIsInvoiceFormOpen] = useState(false)
   const [selectedInvoiceNotice, setSelectedInvoiceNotice] = useState<Notice | null>(null)
+  const [hiddenNoticeTypes, setHiddenNoticeTypes] = useState<string[]>([])
+  const [showHiddenToggle, setShowHiddenToggle] = useState(false)
 
   useEffect(() => {
     if (!user?.id) return;
@@ -52,25 +51,19 @@ export default function NotificationsPage() {
       if (!user?.id) return;
       
       const [
-        allNotices,
         leaseNoticesData,
         applicationNotificationsData,
         unreadCountData,
         props
       ] = await Promise.all([
-        noticeService.getLandlordNotices(user.id),
         noticeService.getLandlordLeaseNotices(user.id),
         notificationService.getLandlordNotifications(user.id),
         notificationService.getUnreadCount(user.id),
         propertyService.getLandlordProperties(user.id)
       ])
       
-      // Filter sent notices (landlord-initiated notices)
-      const landlordSentNotices = allNotices.filter(notice => 
-        notice.type !== "lease_completed" && 
-        notice.type !== "lease_received"
-      )
-      setSentNotices(landlordSentNotices)
+      // Set received notices (notices sent by renters to landlords)
+      setReceivedNotices(leaseNoticesData)
       
       // Set lease notices
       setLeaseNotices(leaseNoticesData)
@@ -87,26 +80,8 @@ export default function NotificationsPage() {
     fetchData()
   }, [user])
 
-  const handleSendNotice = async (noticeData: Partial<Notice>) => {
-    if (!user?.id) return;
-    const newNotice = {
-      ...noticeData,
-      landlordId: user.id,
-    } as Omit<Notice, "id" | "sentAt" | "readAt">;
-    await noticeService.createNotice(newNotice)
-    
-    // Refresh notices
-    const allNotices = await noticeService.getLandlordNotices(user.id)
-    const landlordSentNotices = allNotices.filter(notice => 
-      notice.type !== "lease_completed" && 
-      notice.type !== "lease_received"
-    )
-    setSentNotices(landlordSentNotices)
-    setIsFormOpen(false)
-  }
-
   const deleteNotice = (noticeId: string) => {
-    setSentNotices((prev) => prev.filter((n) => n.id !== noticeId))
+    setReceivedNotices((prev) => prev.filter((n) => n.id !== noticeId))
   }
 
   const getNoticeTypeLabel = (type: Notice["type"]) => {
@@ -157,7 +132,6 @@ export default function NotificationsPage() {
   }
 
   const markNoticeAsRead = async (noticeId: string) => {
-    setSentNotices((prev) => prev.map((notice) => (notice.id === noticeId ? { ...notice, readAt: new Date() } : notice)))
     setReceivedNotices((prev) => prev.map((notice) => (notice.id === noticeId ? { ...notice, readAt: new Date() } : notice)))
     setLeaseNotices((prev) => prev.map((notice) => (notice.id === noticeId ? { ...notice, readAt: new Date() } : notice)))
     await noticeService.markAsRead(noticeId);
@@ -225,7 +199,10 @@ export default function NotificationsPage() {
     }
   };
 
-  const handleSendInvoice = async (notice: Notice) => {
+  const handleSendInvoice = async (notice: Notice, e?: React.MouseEvent) => {
+    e?.preventDefault();
+    e?.stopPropagation();
+    
     if (!notice.renterEmail) {
       toast.error("Renter email not found");
       return;
@@ -265,8 +242,20 @@ export default function NotificationsPage() {
     return `${addr.street}${addr.unit ? ", Unit " + addr.unit : ""}, ${addr.city}, ${addr.state}`
   }
 
+  const toggleNoticeTypeVisibility = (noticeType: string) => {
+    setHiddenNoticeTypes(prev => 
+      prev.includes(noticeType) 
+        ? prev.filter(type => type !== noticeType)
+        : [...prev, noticeType]
+    )
+  }
+
+  const isNoticeTypeHidden = (noticeType: string) => {
+    return hiddenNoticeTypes.includes(noticeType)
+  }
+
   const allNotifications = [
-    ...sentNotices.map(n => ({ ...n, _type: "sent" })),
+    ...receivedNotices.map(n => ({ ...n, _type: "received" })),
     ...leaseNotices.map(n => ({ ...n, _type: "lease" })),
     ...applicationNotifications.map(n => ({ ...n, _type: "application" }))
   ].sort((a, b) => {
@@ -276,11 +265,17 @@ export default function NotificationsPage() {
   });
 
   const filteredNotifications = allNotifications.filter((notification) => {
+    // First filter by hidden notice types
+    if (isNoticeTypeHidden(notification.type)) {
+      return false
+    }
+    
+    // Then filter by active tab
     switch (activeTab) {
       case "unread":
         return !notification.readAt
-      case "sent":
-        return notification._type === "sent"
+      case "received":
+        return notification._type === "received"
       case "lease":
         return notification._type === "lease"
       case "applications":
@@ -290,10 +285,88 @@ export default function NotificationsPage() {
     }
   })
 
-  const unreadSentCount = sentNotices.filter((n) => !n.readAt).length
+  const unreadReceivedCount = receivedNotices.filter((n) => !n.readAt).length
   const unreadLeaseCount = leaseNotices.filter((n) => !n.readAt).length
   const unreadApplicationCount = applicationNotifications.filter((n) => !n.readAt).length
-  const totalUnreadCount = unreadSentCount + unreadLeaseCount + unreadApplicationCount
+  const totalUnreadCount = unreadReceivedCount + unreadLeaseCount + unreadApplicationCount
+
+  const handleNotificationClick = async (notification: any) => {
+    // Mark as read if not already read
+    if (!notification.readAt) {
+      if (notification._type === "application") {
+        await notificationService.markAsRead(notification.id);
+      } else {
+        await noticeService.markAsRead(notification.id);
+      }
+      
+      // Update local state
+      if (notification._type === "application") {
+        setApplicationNotifications(prev => 
+          prev.map(n => n.id === notification.id ? { ...n, readAt: new Date() } : n)
+        );
+      } else if (notification._type === "lease") {
+        setLeaseNotices(prev => 
+          prev.map(n => n.id === notification.id ? { ...n, readAt: new Date() } : n)
+        );
+      } else {
+        setReceivedNotices(prev => 
+          prev.map(n => n.id === notification.id ? { ...n, readAt: new Date() } : n)
+        );
+      }
+    }
+
+    // Navigate based on notification type and navigation data
+    if (notification.navigation) {
+      const { path, params } = notification.navigation;
+      
+      if (path) {
+        let url = path;
+        
+        // Add query parameters if they exist
+        if (params) {
+          const searchParams = new URLSearchParams();
+          Object.entries(params).forEach(([key, value]) => {
+            if (value && typeof value === 'string') searchParams.append(key, value);
+          });
+          if (searchParams.toString()) {
+            url += `?${searchParams.toString()}`;
+          }
+        }
+        
+        window.location.href = url;
+      }
+    } else {
+      // Fallback navigation based on notification type
+      switch (notification.type) {
+        case "application_submitted":
+        case "application_approved":
+        case "application_rejected":
+          window.location.href = "/applications";
+          break;
+        case "tenant_moved_in":
+          window.location.href = "/properties";
+          break;
+        case "payment_received":
+          window.location.href = "/dashboard/incomes";
+          break;
+        case "lease_completed":
+          window.location.href = "/dashboard/notifications?tab=lease";
+          break;
+        case "invoice_sent":
+          window.location.href = "/dashboard/notifications?tab=received";
+          break;
+        default:
+          // Stay on notifications page but switch to appropriate tab
+          if (notification._type === "application") {
+            setActiveTab("applications");
+          } else if (notification._type === "lease") {
+            setActiveTab("lease");
+          } else {
+            setActiveTab("received");
+          }
+      }
+    }
+  };
 
   if (!user || user.role !== "landlord") {
     return <div>Access denied. Landlord access required.</div>
@@ -303,103 +376,76 @@ export default function NotificationsPage() {
     <div className="container mx-auto p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div className="space-y-2">
-          <h1 className="text-3xl font-bold text-primary">Notifications</h1>
-          <p className="text-muted-foreground">Manage all your notifications, notices, and lease updates</p>
+          <h1 className="text-3xl font-bold text-primary">Received Notifications</h1>
+          <p className="text-muted-foreground">View notifications and responses from your renters</p>
         </div>
         <div className="flex items-center gap-4">
-          <div className="relative">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="icon" className="relative">
-                  <Bell className="h-5 w-5" />
-                  {unreadCount > 0 && (
-                    <Badge 
-                      variant="destructive" 
-                      className="absolute -top-2 -right-2 h-6 w-6 rounded-full p-0 flex items-center justify-center text-xs"
-                    >
-                      {unreadCount > 9 ? '9+' : unreadCount}
-                    </Badge>
-                  )}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-80">
-                <DropdownMenuLabel className="flex items-center justify-between">
-                  <span>Quick Notifications</span>
-                  {unreadCount > 0 && (
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
-                      onClick={async () => {
-                        if (user?.id) {
-                          await notificationService.markAllAsRead(user.id);
-                          setUnreadCount(0);
-                        }
-                      }}
-                    >
-                      Mark all as read
-                    </Button>
-                  )}
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {applicationNotifications.length === 0 ? (
-                  <div className="p-4 text-center text-sm text-muted-foreground">
-                    No new notifications
-                  </div>
-                ) : (
-                  <div className="max-h-64 overflow-y-auto">
-                    {applicationNotifications.slice(0, 5).map((notification) => (
-                      <DropdownMenuItem
-                        key={notification.id}
-                        className="flex items-start gap-3 p-3 cursor-pointer hover:bg-muted/50"
-                      >
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="text-sm font-medium truncate">
-                              {notification.title}
-                            </span>
-                            {!notification.readAt && (
-                              <Badge variant="destructive" className="text-xs">New</Badge>
-                            )}
-                          </div>
-                          <p className="text-xs text-muted-foreground line-clamp-2">
-                            {notification.message}
-                          </p>
-                          <div className="flex items-center gap-2 mt-1">
-                            <span className="text-xs text-muted-foreground">
-                              {notification.createdAt ? toDateString(notification.createdAt) : 'Just now'}
-                            </span>
-                          </div>
-                        </div>
-                      </DropdownMenuItem>
-                    ))}
-                  </div>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-          <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
-            <DialogTrigger asChild>
-              <Button>
-                <Plus className="h-4 w-4 mr-2" />
-                Send Notice
+          {/* Notification Settings */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm">
+                <Eye className="h-4 w-4 mr-2" />
+                Filter Notices
               </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Send New Notice</DialogTitle>
-              </DialogHeader>
-              <NoticeForm
-                onSend={handleSendNotice}
-                properties={properties}
-                onCancel={() => setIsFormOpen(false)}
-              />
-            </DialogContent>
-          </Dialog>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-64">
+              <DropdownMenuLabel>Hide Notice Types</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => toggleNoticeTypeVisibility("invoice_sent")}>
+                <div className="flex items-center gap-2">
+                  <input 
+                    type="checkbox" 
+                    checked={isNoticeTypeHidden("invoice_sent")}
+                    onChange={() => {}}
+                    className="h-4 w-4"
+                  />
+                  <span>Invoice Notices</span>
+                </div>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => toggleNoticeTypeVisibility("lease_completed")}>
+                <div className="flex items-center gap-2">
+                  <input 
+                    type="checkbox" 
+                    checked={isNoticeTypeHidden("lease_completed")}
+                    onChange={() => {}}
+                    className="h-4 w-4"
+                  />
+                  <span>Lease Completed</span>
+                </div>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => toggleNoticeTypeVisibility("lease_received")}>
+                <div className="flex items-center gap-2">
+                  <input 
+                    type="checkbox" 
+                    checked={isNoticeTypeHidden("lease_received")}
+                    onChange={() => {}}
+                    className="h-4 w-4"
+                  />
+                  <span>Lease Received</span>
+                </div>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => toggleNoticeTypeVisibility("payment_received")}>
+                <div className="flex items-center gap-2">
+                  <input 
+                    type="checkbox" 
+                    checked={isNoticeTypeHidden("payment_received")}
+                    onChange={() => {}}
+                    className="h-4 w-4"
+                  />
+                  <span>Payment Notices</span>
+                </div>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setHiddenNoticeTypes([])}>
+                <span className="text-blue-600">Show All Notices</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
       {/* Summary Cards */}
-      <div className="grid gap-4 md:grid-cols-5">
+      <div className="grid gap-4 md:grid-cols-4">
         <Card className="p-2">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-xs font-medium">Total Notifications</CardTitle>
@@ -422,49 +468,42 @@ export default function NotificationsPage() {
         </Card>
         <Card className="p-2">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-xs font-medium">Notices Sent</CardTitle>
-            <Plus className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-xs font-medium">Received Notices</CardTitle>
+            <FileText className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-xl font-bold">{sentNotices.length}</div>
-            <p className="text-xs text-muted-foreground">Total sent</p>
+            <div className="text-xl font-bold">{receivedNotices.length}</div>
+            <p className="text-xs text-muted-foreground">From renters</p>
           </CardContent>
         </Card>
         <Card className="p-2">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-xs font-medium">Lease Updates</CardTitle>
-            <FileText className="h-4 w-4 text-muted-foreground" />
+            <CheckCircle className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-xl font-bold">{leaseNotices.length}</div>
             <p className="text-xs text-muted-foreground">Agreements</p>
           </CardContent>
         </Card>
-        <Card className="p-2">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-xs font-medium">Applications</CardTitle>
-            <CheckCircle className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-xl font-bold">{applicationNotifications.length}</div>
-            <p className="text-xs text-muted-foreground">Submitted</p>
-          </CardContent>
-        </Card>
       </div>
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-5">
+        <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="all">All ({allNotifications.length})</TabsTrigger>
           <TabsTrigger value="unread">Unread ({totalUnreadCount})</TabsTrigger>
-          <TabsTrigger value="sent">Sent ({sentNotices.length})</TabsTrigger>
+          <TabsTrigger value="received">Received ({receivedNotices.length})</TabsTrigger>
           <TabsTrigger value="lease">Lease ({leaseNotices.length})</TabsTrigger>
-          <TabsTrigger value="applications">Applications ({applicationNotifications.length})</TabsTrigger>
         </TabsList>
 
         <TabsContent value={activeTab} className="space-y-4 mt-6">
           {filteredNotifications.map((notification) => (
-            <Card key={notification.id} className={!notification.readAt ? "border-destructive/50" : ""}>
+            <Card 
+              key={notification.id} 
+              className={`cursor-pointer transition-colors hover:bg-muted/50 ${!notification.readAt ? "border-destructive/50" : ""}`}
+              onClick={() => handleNotificationClick(notification)}
+            >
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between">
                   <div className="space-y-2">
@@ -503,7 +542,7 @@ export default function NotificationsPage() {
                       <span>
                         {notification._type === "application" 
                           ? `Received: ${notification.createdAt ? toDateString(notification.createdAt) : 'Just now'}`
-                          : `Sent: ${new Date(notification.sentAt || notification.createdAt).toLocaleDateString()}`
+                          : `Received: ${new Date(notification.sentAt || notification.createdAt).toLocaleDateString()}`
                         }
                       </span>
                       {notification.readAt && (
@@ -537,7 +576,7 @@ export default function NotificationsPage() {
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => handleSendInvoice(notification)}
+                            onClick={(e) => handleSendInvoice(notification, e)}
                           >
                             <Send className="h-4 w-4 mr-2" />
                             Send Invoice
@@ -555,7 +594,7 @@ export default function NotificationsPage() {
                         View Property
                       </Button>
                     )}
-                    {notification._type === "sent" && (
+                    {notification._type === "received" && (
                       <Button
                         variant="outline"
                         size="sm"
@@ -596,13 +635,11 @@ export default function NotificationsPage() {
               <p className="text-muted-foreground">
                 {activeTab === "unread"
                   ? "No unread notifications"
-                  : activeTab === "sent"
-                    ? "No notices sent"
+                  : activeTab === "received"
+                    ? "No received notifications"
                     : activeTab === "lease"
-                      ? "No lease notices"
-                      : activeTab === "applications"
-                        ? "No application notifications"
-                        : "No notifications found"}
+                      ? "No lease notifications"
+                      : "No notifications found"}
               </p>
             </div>
           )}
@@ -622,7 +659,7 @@ export default function NotificationsPage() {
         isLandlordView={true}
         selectedNotice={selectedNotice}
         onDownload={() => selectedNotice && handleDownloadLease(selectedNotice)}
-        onSendInvoice={() => selectedNotice && handleSendInvoice(selectedNotice)}
+        onSendInvoice={(e) => selectedNotice && handleSendInvoice(selectedNotice, e)}
       />
 
       {/* Property Details Dialog */}

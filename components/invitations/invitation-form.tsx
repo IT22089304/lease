@@ -32,11 +32,12 @@ interface InvitationFormProps {
   properties: Property[]
   onSubmit: (data: any) => void
   onCancel: () => void
+  defaultPropertyId?: string
 }
 
-export function InvitationForm({ properties, onSubmit, onCancel }: InvitationFormProps) {
+export function InvitationForm({ properties, onSubmit, onCancel, defaultPropertyId }: InvitationFormProps) {
   const { toast } = useToast()
-  const [selectedProperty, setSelectedProperty] = useState("")
+  const [selectedProperty, setSelectedProperty] = useState(defaultPropertyId || "")
   const [renterEmail, setRenterEmail] = useState("")
   const [loading, setLoading] = useState(false)
 
@@ -79,7 +80,7 @@ export function InvitationForm({ properties, onSubmit, onCancel }: InvitationFor
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="space-y-2">
             <Label htmlFor="property">Select Property</Label>
-            <Select value={selectedProperty} onValueChange={setSelectedProperty}>
+            <Select value={selectedProperty} onValueChange={setSelectedProperty} disabled={properties.length === 1}>
               <SelectTrigger>
                 <SelectValue placeholder="Choose a property" />
               </SelectTrigger>

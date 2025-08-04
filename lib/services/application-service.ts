@@ -40,6 +40,14 @@ export const applicationService = {
     return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
   },
 
+  async getApplicationByProperty(propertyId: string) {
+    const q = query(collection(db, "applications"), where("propertyId", "==", propertyId))
+    const snapshot = await getDocs(q)
+    if (snapshot.empty) return null
+    const doc = snapshot.docs[0]
+    return { id: doc.id, ...doc.data() }
+  },
+
   async updateApplicationStatus(applicationId: string, status: string) {
     const docRef = doc(db, "applications", applicationId)
     await updateDoc(docRef, {

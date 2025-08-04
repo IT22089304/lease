@@ -10,9 +10,11 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { useAuth } from "@/lib/auth"
+import { useSearchParams } from "next/navigation"
 import type { RentPayment } from "@/types"
 import { leaseService } from "@/lib/services/lease-service"
 import { paymentService } from "@/lib/services/payment-service"
+import { invoiceService } from "@/lib/services/invoice-service"
 import { loadStripe } from "@stripe/stripe-js"
 import { Elements, CardElement, useStripe, useElements } from "@stripe/react-stripe-js"
 import { saveAs } from "file-saver"
@@ -21,6 +23,7 @@ import autoTable from "jspdf-autotable";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { securityDepositService } from "@/lib/services/security-deposit-service"
+import { toast } from "sonner"
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!)
 
@@ -232,13 +235,18 @@ function generateAllPaymentsPDF(payments: any[], properties: any[], landlord: an
 
 export default function PaymentsPage() {
   const { user } = useAuth();
+  const searchParams = useSearchParams();
+  const invoiceId = searchParams.get('invoiceId');
+  
   const [payments, setPayments] = useState<RentPayment[]>([]);
+  const [invoices, setInvoices] = useState<any[]>([]);
   const [leases, setLeases] = useState<any[]>([]);
   const [currentLease, setCurrentLease] = useState<any>(null);
   const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false);
   const [nextPayment, setNextPayment] = useState({ amount: 0, label: "" });
   const [paymentSuccess, setPaymentSuccess] = useState(false);
   const [securityDeposits, setSecurityDeposits] = useState<any[]>([]);
+  const [selectedInvoice, setSelectedInvoice] = useState<any>(null);
 
   useEffect(() => {
     async function fetchPayments() {
@@ -247,25 +255,97 @@ export default function PaymentsPage() {
       setLeases(leases);
       let allPayments: RentPayment[] = [];
       let allDeposits: any[] = [];
+      let allInvoices: any[] = [];
+      
       for (const lease of leases) {
         const payments = await paymentService.getLeasePayments(lease.id);
         allPayments = allPayments.concat(payments);
         const deposits = await securityDepositService.getDepositsByLease(lease.id);
         allDeposits = allDeposits.concat(deposits);
       }
+      
+      // Fetch invoice payments
+      const renterInvoices = await invoiceService.getRenterInvoices(user.email);
+      setInvoices(renterInvoices);
+      
+      // Handle specific invoice payment
+      if (invoiceId) {
+        const invoice = renterInvoices.find(inv => inv.id === invoiceId);
+        if (invoice && invoice.status === "sent") {
+          setSelectedInvoice(invoice);
+          setNextPayment({ amount: invoice.amount, label: `Invoice #${invoice.id.slice(-6)}` });
+          setIsPaymentDialogOpen(true);
+        }
+      }
+      
       allPayments.sort((a, b) => (b.dueDate?.getTime?.() || 0) - (a.dueDate?.getTime?.() || 0));
       setPayments(allPayments);
       setSecurityDeposits(allDeposits);
       // Pick the most recent/active lease
       const lease = leases[0] || null;
       setCurrentLease(lease);
-      setNextPayment(getNextPaymentDue(lease, allPayments, allDeposits));
+      
+      // Check for unpaid invoices first
+      const unpaidInvoices = renterInvoices.filter((i) => i.status === "sent");
+      if (unpaidInvoices.length > 0 && !invoiceId) {
+        // If there are unpaid invoices and no specific invoice ID, show the first unpaid invoice
+        const firstUnpaidInvoice = unpaidInvoices[0];
+        setSelectedInvoice(firstUnpaidInvoice);
+        setNextPayment({ amount: firstUnpaidInvoice.amount, label: `Invoice #${firstUnpaidInvoice.id.slice(-6)}` });
+      } else if (!invoiceId) {
+        // Only use lease-based payment if no invoices to pay
+        setNextPayment(getNextPaymentDue(lease, allPayments, allDeposits));
+      }
     }
     fetchPayments();
-  }, [user?.email]);
+  }, [user?.email, invoiceId]);
 
   const handlePaymentSuccess = async (paymentData: any) => {
-    // Try to find a pending payment
+    // Handle invoice payment
+    if (selectedInvoice) {
+      try {
+        // Update invoice status to paid
+        await invoiceService.updateInvoiceStatus(selectedInvoice.id, "paid");
+        
+        // Create separate payment records from invoice breakdown
+        await invoiceService.createPaymentRecordsFromInvoice(selectedInvoice, paymentData.stripeId);
+        
+        setSelectedInvoice(null);
+        setIsPaymentDialogOpen(false);
+        setPaymentSuccess(true);
+        setTimeout(() => setPaymentSuccess(false), 4000);
+        
+        // Refresh data
+        if (user?.email) {
+          const leases = await leaseService.getRenterLeases(user.email);
+          let allPayments: RentPayment[] = [];
+          let allDeposits: any[] = [];
+          for (const lease of leases) {
+            const payments = await paymentService.getLeasePayments(lease.id);
+            allPayments = allPayments.concat(payments);
+            const deposits = await securityDepositService.getDepositsByLease(lease.id);
+            allDeposits = allDeposits.concat(deposits);
+          }
+          allPayments.sort((a, b) => (b.dueDate?.getTime?.() || 0) - (a.dueDate?.getTime?.() || 0));
+          setPayments(allPayments);
+          setSecurityDeposits(allDeposits);
+          
+          // Refresh invoices
+          const renterInvoices = await invoiceService.getRenterInvoices(user.email);
+          setInvoices(renterInvoices);
+          
+          const lease = leases[0] || null;
+          setCurrentLease(lease);
+          setNextPayment(getNextPaymentDue(lease, allPayments, allDeposits));
+        }
+        return;
+      } catch (error) {
+        console.error("Error processing invoice payment:", error);
+        toast.error("Payment processed but there was an error updating the invoice.");
+      }
+    }
+    
+    // Handle regular payment (existing logic)
     const pending = payments.find(p => p.status === "pending");
     const isInitialPayment = currentLease && paymentData.amount === (currentLease.securityDeposit + currentLease.monthlyRent);
     if (isInitialPayment && currentLease) {
@@ -329,6 +409,11 @@ export default function PaymentsPage() {
       allPayments.sort((a, b) => (b.dueDate?.getTime?.() || 0) - (a.dueDate?.getTime?.() || 0));
       setPayments(allPayments);
       setSecurityDeposits(allDeposits);
+      
+      // Refresh invoices
+      const renterInvoices = await invoiceService.getRenterInvoices(user.email);
+      setInvoices(renterInvoices);
+      
       const lease = leases[0] || null;
       setCurrentLease(lease);
       setNextPayment(getNextPaymentDue(lease, allPayments, allDeposits));
@@ -351,9 +436,10 @@ export default function PaymentsPage() {
     saveAs(blob, `rent-payments-receipt.txt`);
   };
 
-  // Calculate total paid including both rent payments and security deposits
+  // Calculate total paid including rent payments, security deposits, and invoice payments
   const totalPaid = payments.filter((p) => p.status === "paid").reduce((sum, p) => sum + p.amount, 0)
-    + securityDeposits.reduce((sum, d) => sum + (d.amount || 0), 0);
+    + securityDeposits.reduce((sum, d) => sum + (d.amount || 0), 0)
+    + invoices.filter((i) => i.status === "paid").reduce((sum, i) => sum + i.amount, 0);
 
   // Calculate pending payments, considering both collections for initial payment
   const pendingPayments = payments.filter((p) => p.status === "pending");
@@ -373,6 +459,11 @@ export default function PaymentsPage() {
       totalPending = 0;
     }
   }
+  
+  // Add unpaid invoice amounts to pending payments
+  const unpaidInvoices = invoices.filter((i) => i.status === "sent");
+  const totalUnpaidInvoices = unpaidInvoices.reduce((sum, i) => sum + i.amount, 0);
+  totalPending += totalUnpaidInvoices;
 
   const handleExportAllPaymentsPDF = () => {
     // Use properties, not leases, for property lookup
@@ -410,6 +501,12 @@ export default function PaymentsPage() {
     docPDF.save(`receipt-${payment.id}.pdf`);
   };
 
+  const handlePayInvoice = (invoice: any) => {
+    setSelectedInvoice(invoice);
+    setNextPayment({ amount: invoice.amount, label: `Invoice #${invoice.id.slice(-6)}` });
+    setIsPaymentDialogOpen(true);
+  };
+
   return (
     <div className="container mx-auto p-6 space-y-6">
       {paymentSuccess && (
@@ -425,23 +522,83 @@ export default function PaymentsPage() {
         </div>
         <Dialog open={isPaymentDialogOpen} onOpenChange={setIsPaymentDialogOpen}>
           <DialogTrigger asChild>
-            <Button className="flex items-center gap-2" onClick={() => setIsPaymentDialogOpen(true)}>
+            <Button className="flex items-center gap-2" onClick={() => {
+              // Check if there are unpaid invoices first
+              const unpaidInvoices = invoices.filter((i) => i.status === "sent");
+              if (unpaidInvoices.length > 0) {
+                handlePayInvoice(unpaidInvoices[0]);
+              } else {
+                setIsPaymentDialogOpen(true);
+              }
+            }}>
               <CreditCard className="h-4 w-4" />
               Make Payment
             </Button>
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Make Rent Payment</DialogTitle>
+              <DialogTitle>
+                {selectedInvoice ? `Pay Invoice #${selectedInvoice.id.slice(-6)}` : "Make Rent Payment"}
+              </DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
               <div>
                 <Label>Amount Due</Label>
                 <div className="text-2xl font-bold">${nextPayment.amount.toLocaleString()}</div>
                 <div className="text-muted-foreground text-sm">{nextPayment.label}</div>
+                
+                {/* Show invoice breakdown if paying an invoice */}
+                {selectedInvoice && (
+                  <div className="mt-4 p-4 bg-blue-50 rounded-lg">
+                    <h4 className="font-medium mb-2">Invoice Breakdown</h4>
+                    <div className="space-y-2 text-sm">
+                      {selectedInvoice.monthlyRent > 0 && (
+                        <div className="flex justify-between">
+                          <span>Monthly Rent:</span>
+                          <span className="font-medium">${selectedInvoice.monthlyRent.toLocaleString()}</span>
+                        </div>
+                      )}
+                      {selectedInvoice.securityDeposit > 0 && (
+                        <div className="flex justify-between">
+                          <span>Security Deposit:</span>
+                          <span className="font-medium">${selectedInvoice.securityDeposit.toLocaleString()}</span>
+                        </div>
+                      )}
+                      {selectedInvoice.applicationFee > 0 && (
+                        <div className="flex justify-between">
+                          <span>Application Fee:</span>
+                          <span className="font-medium">${selectedInvoice.applicationFee.toLocaleString()}</span>
+                        </div>
+                      )}
+                      {selectedInvoice.petFee > 0 && (
+                        <div className="flex justify-between">
+                          <span>Pet Fee:</span>
+                          <span className="font-medium">${selectedInvoice.petFee.toLocaleString()}</span>
+                        </div>
+                      )}
+                      <div className="border-t pt-2 mt-2">
+                        <div className="flex justify-between font-semibold">
+                          <span>Total:</span>
+                          <span>${selectedInvoice.amount.toLocaleString()}</span>
+                        </div>
+                      </div>
+                    </div>
+                    {selectedInvoice.notes && (
+                      <div className="mt-3 pt-3 border-t">
+                        <p className="text-xs text-muted-foreground">
+                          <strong>Notes:</strong> {selectedInvoice.notes}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
               <Elements stripe={stripePromise}>
-                <StripeCardForm amount={nextPayment.amount} onSuccess={handlePaymentSuccess} onCancel={() => setIsPaymentDialogOpen(false)} />
+                <StripeCardForm 
+                  amount={selectedInvoice ? selectedInvoice.amount : nextPayment.amount} 
+                  onSuccess={handlePaymentSuccess} 
+                  onCancel={() => setIsPaymentDialogOpen(false)} 
+                />
               </Elements>
             </div>
           </DialogContent>
@@ -449,7 +606,7 @@ export default function PaymentsPage() {
       </div>
 
       {/* Payment Summary */}
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Paid</CardTitle>
@@ -457,17 +614,6 @@ export default function PaymentsPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-success">${totalPaid.toLocaleString()}</div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Pending Payments</CardTitle>
-            <Calendar className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-warning">${totalPending.toLocaleString()}</div>
-            <p className="text-xs text-muted-foreground">Amount you still have to pay</p>
           </CardContent>
         </Card>
 
@@ -518,6 +664,66 @@ export default function PaymentsPage() {
                 </div>
               </div>
             ))}
+            
+            {/* Show invoice payments */}
+            {invoices.map((invoice) => (
+              <div key={invoice.id} className="flex items-center justify-between p-4 border rounded-lg bg-green-50">
+                <div className="flex items-center gap-4">
+                  <div
+                    className={`w-3 h-3 rounded-full ${
+                      invoice.status === "paid"
+                        ? "bg-success"
+                        : invoice.status === "overdue"
+                          ? "bg-destructive"
+                          : "bg-warning"
+                    }`}
+                  />
+                  <div>
+                    <p className="font-medium">${invoice.amount.toLocaleString()} <span className="text-xs text-green-700">(Invoice Payment)</span></p>
+                    <p className="text-sm text-muted-foreground">
+                      Invoice #{invoice.id.slice(-6)}
+                      {invoice.createdAt && ` • Sent: ${new Date(invoice.createdAt).toLocaleDateString()}`}
+                      {invoice.status === "paid" && ` • Paid: ${new Date(invoice.updatedAt || invoice.createdAt).toLocaleDateString()}`}
+                    </p>
+                    {/* Show breakdown of invoice components */}
+                    {invoice.status === "paid" && (
+                      <div className="text-xs text-muted-foreground mt-1">
+                        <span>Breakdown: </span>
+                        {invoice.monthlyRent > 0 && <span className="mr-2">Rent: ${invoice.monthlyRent.toLocaleString()}</span>}
+                        {invoice.securityDeposit > 0 && <span className="mr-2">Deposit: ${invoice.securityDeposit.toLocaleString()}</span>}
+                        {invoice.applicationFee > 0 && <span className="mr-2">Application: ${invoice.applicationFee.toLocaleString()}</span>}
+                        {invoice.petFee > 0 && <span className="mr-2">Pet Fee: ${invoice.petFee.toLocaleString()}</span>}
+                      </div>
+                    )}
+                    {invoice.notes && (
+                      <p className="text-xs text-muted-foreground">
+                        Notes: {invoice.notes}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge
+                    className={
+                      invoice.status === "paid"
+                        ? "status-paid"
+                        : invoice.status === "overdue"
+                          ? "status-overdue"
+                          : "status-badge bg-warning/10 text-warning border-warning/20"
+                    }
+                  >
+                    {invoice.status === "paid" ? "Paid" : invoice.status === "overdue" ? "Overdue" : "Sent"}
+                  </Badge>
+                  {invoice.status === "sent" && (
+                    <Button size="sm" onClick={() => handlePayInvoice(invoice)}>
+                      Pay Now
+                    </Button>
+                  )}
+                  <Button onClick={async () => await handleExportSinglePaymentPDF(invoice)} size="sm" variant="outline">Export PDF</Button>
+                </div>
+              </div>
+            ))}
+            
             {/* Show regular payments */}
             {payments.map((payment) => (
               <div key={payment.id} className="flex items-center justify-between p-4 border rounded-lg">

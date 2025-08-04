@@ -71,6 +71,7 @@ export function InvoiceForm({ isOpen, onClose, notice, onSubmit }: InvoiceFormPr
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    e.stopPropagation()
     
     // Check if property details are loaded
     if (!propertyDetails) {
@@ -146,13 +147,13 @@ export function InvoiceForm({ isOpen, onClose, notice, onSubmit }: InvoiceFormPr
   const petFee = propertyDetails?.petPolicy?.fee || 0
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+    <Dialog open={isOpen} onOpenChange={onClose} onPointerDownOutside={(e) => e.preventDefault()}>
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <DialogHeader>
           <DialogTitle>Send Invoice to Renter</DialogTitle>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form onSubmit={handleSubmit} className="space-y-6" onClick={(e) => e.stopPropagation()}>
           {/* Property Information */}
           <Card>
             <CardHeader>

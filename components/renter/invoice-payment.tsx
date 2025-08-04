@@ -113,83 +113,9 @@ function StripePaymentForm({ invoice, onSuccess, onCancel }: InvoicePaymentProps
   }
 
   const createPaymentRecords = async (stripePaymentId: string) => {
-    // Use the breakdown amounts from the invoice
-    const monthlyRent = invoice.monthlyRent || 0
-    const securityDeposit = invoice.securityDeposit || 0
-    const applicationFee = invoice.applicationFee || 0
-    const petFee = invoice.petFee || 0
-
-    console.log("Creating payment records with breakdown:", {
-      monthlyRent,
-      securityDeposit,
-      applicationFee,
-      petFee
-    })
-
-    // Create security deposit record if applicable
-    if (securityDeposit > 0) {
-      await securityDepositService.createDeposit({
-        leaseId: invoice.propertyId, // Using propertyId as leaseId for now
-        renterId: invoice.renterId,
-        landlordId: invoice.landlordId,
-        amount: securityDeposit,
-        paidDate: new Date(),
-        paymentMethod: "Stripe Card",
-        transactionId: stripePaymentId,
-      })
-      console.log("Security deposit record created:", securityDeposit)
-    }
-
-    // Create monthly rent payment record
-    if (monthlyRent > 0) {
-      await paymentService.createPayment({
-        leaseId: invoice.propertyId,
-        amount: monthlyRent,
-        dueDate: new Date(),
-        paidDate: new Date(),
-        status: "paid",
-        paymentMethod: "Stripe Card",
-        transactionId: stripePaymentId,
-        renterId: invoice.renterId,
-        landlordId: invoice.landlordId,
-        paymentType: "monthly_rent"
-      })
-      console.log("Monthly rent payment record created:", monthlyRent)
-    }
-
-    // Create application fee payment record
-    if (applicationFee > 0) {
-      await paymentService.createPayment({
-        leaseId: invoice.propertyId,
-        amount: applicationFee,
-        dueDate: new Date(),
-        paidDate: new Date(),
-        status: "paid",
-        paymentMethod: "Stripe Card",
-        transactionId: stripePaymentId,
-        renterId: invoice.renterId,
-        landlordId: invoice.landlordId,
-        paymentType: "application_fee"
-      })
-      console.log("Application fee payment record created:", applicationFee)
-    }
-
-    // Create pet fee payment record
-    if (petFee > 0) {
-      await paymentService.createPayment({
-        leaseId: invoice.propertyId,
-        amount: petFee,
-        dueDate: new Date(),
-        paidDate: new Date(),
-        status: "paid",
-        paymentMethod: "Stripe Card",
-        transactionId: stripePaymentId,
-        renterId: invoice.renterId,
-        landlordId: invoice.landlordId,
-        paymentType: "pet_fee"
-      })
-      console.log("Pet fee payment record created:", petFee)
-    }
+    // Use the new invoice service method to create separate payment records
+    await invoiceService.createPaymentRecordsFromInvoice(invoice, stripePaymentId)
+    console.log("Payment records created from invoice breakdown")
   }
 
   const updateLeaseStatus = async () => {
@@ -333,31 +259,10 @@ function StripePaymentForm({ invoice, onSuccess, onCancel }: InvoicePaymentProps
       )}
 
       <div className="space-y-2">
-        <div className="flex justify-between items-center text-sm">
+        <div className="flex justify-between items-center text-lg font-semibold">
           <span>Total Amount:</span>
-          <span className="font-semibold text-lg">${invoice.amount.toLocaleString()}</span>
+          <span className="text-xl">${invoice.amount.toLocaleString()}</span>
         </div>
-        
-                 <div className="text-xs text-muted-foreground space-y-1">
-           <div className="flex justify-between">
-             <span>Monthly Rent:</span>
-             <span>${invoice.monthlyRent?.toLocaleString() || 0}</span>
-           </div>
-           <div className="flex justify-between">
-             <span>Security Deposit:</span>
-             <span>${invoice.securityDeposit?.toLocaleString() || 0}</span>
-           </div>
-           <div className="flex justify-between">
-             <span>Application Fee:</span>
-             <span>${invoice.applicationFee?.toLocaleString() || 0}</span>
-           </div>
-           {invoice.petFee > 0 && (
-             <div className="flex justify-between">
-               <span>Pet Fee:</span>
-               <span>${invoice.petFee?.toLocaleString() || 0}</span>
-             </div>
-           )}
-         </div>
       </div>
 
       <div className="flex gap-2 pt-4">

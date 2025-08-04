@@ -116,4 +116,21 @@ export const paymentService = {
       createdAt: doc.data().createdAt?.toDate(),
     })) as RentPayment[];
   },
+
+  // Get all payments for a renter
+  async getRenterPayments(renterId: string): Promise<RentPayment[]> {
+    const q = query(
+      collection(db, "payments"),
+      where("renterId", "==", renterId),
+      orderBy("createdAt", "desc")
+    );
+    const querySnapshot = await getDocs(q);
+    return querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+      dueDate: doc.data().dueDate?.toDate(),
+      paidDate: doc.data().paidDate?.toDate(),
+      createdAt: doc.data().createdAt?.toDate(),
+    })) as RentPayment[];
+  },
 } 

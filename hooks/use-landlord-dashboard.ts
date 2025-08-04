@@ -32,21 +32,23 @@ export function useLandlordDashboard() {
         const propertiesData = await propertyService.getLandlordProperties(user.id)
         setProperties(propertiesData)
 
-        // Load leases for all properties
-        const leases: Lease[] = []
-        for (const property of propertiesData) {
-          const propertyLeases = await leaseService.getLandlordLeases(user.id)
-          leases.push(...propertyLeases)
-        }
+        // Load all leases for the landlord (not per property)
+        const allLeases = await leaseService.getLandlordLeases(user.id)
 
         // Calculate stats
-        const activeLeases = leases.filter(lease => lease.status === "active")
-        const monthlyRevenue = activeLeases.reduce((sum, lease) => sum + lease.monthlyRent, 0)
+        const activeLeases = allLeases.filter(lease => lease.status === "active")
+        const monthlyRevenue = activeLeases.reduce((sum, lease) => sum + (lease.monthlyRent || 0), 0)
         
+        // Calculate overdue payments (simplified for now)
         let overduePayments = 0
-        for (const lease of activeLeases) {
-          const overdue = await paymentService.getOverduePayments(lease.id)
-          overduePayments += overdue.length
+        try {
+          for (const lease of activeLeases) {
+            const overdue = await paymentService.getOverduePayments(lease.id)
+            overduePayments += overdue.length
+          }
+        } catch (paymentError) {
+          console.warn("Error fetching overdue payments:", paymentError)
+          // Continue without overdue payments data
         }
 
         setStats({
@@ -54,7 +56,7 @@ export function useLandlordDashboard() {
           activeLeases: activeLeases.length,
           monthlyRevenue,
           overduePayments,
-          pendingSignatures: leases.filter(lease => lease.status === "pending_signature").length,
+          pendingSignatures: allLeases.filter(lease => lease.status === "pending_signature").length,
           pendingApplications: 0, // TODO: Add applications service
           activeInvitations: 0, // TODO: Add invitations service
         })

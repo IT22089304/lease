@@ -11,6 +11,7 @@ import type { Property } from "@/types"
 import { toast } from "sonner"
 
 type PropertyFormData = {
+  title: string
   address: {
     street: string
     unit?: string
@@ -42,7 +43,7 @@ export default function AddPropertyPage() {
   const { user } = useAuth()
   const [loading, setLoading] = useState(false)
 
-  const handleSaveProperty = async (propertyData: PropertyFormData) => {
+  const handleSaveProperty = async (propertyData: PropertyFormData, imageFiles: File[]) => {
     if (!user) return
 
     try {
@@ -53,8 +54,8 @@ export default function AddPropertyPage() {
         landlordId: user.id,
       }
 
-      // Save to Firebase
-      await propertyService.addProperty(propertyWithLandlord)
+      // Save to Firebase with image uploads
+      await propertyService.addProperty(propertyWithLandlord, imageFiles)
       
       toast.success("Property added successfully")
       router.push("/dashboard")
@@ -87,6 +88,7 @@ export default function AddPropertyPage() {
       <PropertyForm 
         onSave={handleSaveProperty} 
         onCancel={() => router.push("/dashboard")} 
+        loading={loading}
       />
     </div>
   )

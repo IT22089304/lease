@@ -2,12 +2,16 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // ===== USER MANAGEMENT =====
+    
     // Users: Only the user can read/write their own document
     match /users/{userId} {
       allow read: if request.auth != null;
       allow write, update, delete: if request.auth != null && request.auth.uid == userId;
     }
 
+    // ===== PROPERTY MANAGEMENT =====
+    
     // Properties: Landlords can CRUD their own, all authenticated users can read
     match /properties/{propertyId} {
       allow read: if request.auth != null;
@@ -21,6 +25,8 @@ service cloud.firestore {
       );
     }
 
+    // ===== LEASE MANAGEMENT =====
+    
     // Leases: Landlords and renters can read their own leases
     match /leases/{leaseId} {
       allow read: if request.auth != null && (
@@ -45,7 +51,45 @@ service cloud.firestore {
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['signatureStatus']);
     }
 
-    // PAYMENTS: Landlord and renter can read/create/update/delete their own
+    // Filled Leases: Landlords and renters can read their own
+    match /filledLeases/{filledLeaseId} {
+      allow read: if request.auth != null && (
+        request.auth.uid == resource.data.landlordId ||
+        request.auth.token.email == resource.data.landlordId ||
+        request.auth.uid == resource.data.renterId ||
+        request.auth.token.email == resource.data.renterId
+      );
+      allow create: if request.auth != null && (
+        request.auth.uid == request.resource.data.landlordId ||
+        request.auth.token.email == request.resource.data.landlordId
+      );
+      allow update, delete: if request.auth != null && (
+        request.auth.uid == resource.data.landlordId ||
+        request.auth.token.email == resource.data.landlordId
+      );
+    }
+
+    // Lease Agreements: Landlords and renters can read their own
+    match /leaseAgreements/{agreementId} {
+      allow read: if request.auth != null && (
+        request.auth.uid == resource.data.landlordId ||
+        request.auth.token.email == resource.data.landlordId ||
+        request.auth.uid == resource.data.renterId ||
+        request.auth.token.email == resource.data.renterId
+      );
+      allow create: if request.auth != null && (
+        request.auth.uid == request.resource.data.landlordId ||
+        request.auth.token.email == request.resource.data.landlordId
+      );
+      allow update, delete: if request.auth != null && (
+        request.auth.uid == resource.data.landlordId ||
+        request.auth.token.email == resource.data.landlordId
+      );
+    }
+
+    // ===== PAYMENT MANAGEMENT =====
+    
+    // Payments: Landlord and renter can read/create/update/delete their own
     match /payments/{paymentId} {
       allow read: if request.auth != null && (
         (resource.data.landlordId != null && (request.auth.uid == resource.data.landlordId || request.auth.token.email == resource.data.landlordId)) ||
@@ -64,7 +108,27 @@ service cloud.firestore {
       );
     }
 
-    // SECURITY DEPOSITS: Landlord and renter can read, landlord can create/update/delete
+    // Invoices: Landlord and renter can read their own
+    match /invoices/{invoiceId} {
+      allow read: if request.auth != null && (
+        request.auth.uid == resource.data.landlordId ||
+        request.auth.token.email == resource.data.landlordId ||
+        resource.data.renterEmail == request.auth.token.email ||
+        resource.data.renterEmail == request.auth.uid
+      );
+      allow create: if request.auth != null && (
+        request.auth.uid == request.resource.data.landlordId ||
+        request.auth.token.email == request.resource.data.landlordId
+      );
+      allow update, delete: if request.auth != null && (
+        request.auth.uid == resource.data.landlordId ||
+        request.auth.token.email == resource.data.landlordId
+      );
+    }
+
+    // ===== SECURITY DEPOSITS =====
+    
+    // Security Deposits: Landlord and renter can read, landlord can create/update/delete
     match /securityDeposits/{depositId} {
       allow read: if request.auth != null && (
         (resource.data.landlordId != null && (request.auth.uid == resource.data.landlordId || request.auth.token.email == resource.data.landlordId)) ||
@@ -79,7 +143,31 @@ service cloud.firestore {
       );
     }
 
-    // NOTICES: Landlord and renter can read, landlord can write, renter can only update 'readAt'
+    // ===== NOTIFICATION SYSTEM =====
+    
+    // Notifications: Landlords can read their own notifications
+    match /notifications/{notificationId} {
+      allow read: if request.auth != null && (
+        request.auth.uid == resource.data.landlordId ||
+        request.auth.token.email == resource.data.landlordId
+      );
+      allow create: if request.auth != null && (
+        request.auth.uid == request.resource.data.landlordId ||
+        request.auth.token.email == request.resource.data.landlordId
+      );
+      allow update: if request.auth != null && (
+        request.auth.uid == resource.data.landlordId ||
+        request.auth.token.email == resource.data.landlordId
+      );
+      allow delete: if request.auth != null && (
+        request.auth.uid == resource.data.landlordId ||
+        request.auth.token.email == resource.data.landlordId
+      );
+    }
+
+    // ===== NOTICE SYSTEM =====
+    
+    // Notices: Landlord and renter can read, landlord can write, renter can only update 'readAt'
     match /notices/{noticeId} {
       allow read: if request.auth != null && (
         request.auth.uid == resource.data.landlordId ||
@@ -104,7 +192,9 @@ service cloud.firestore {
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readAt']));
     }
 
-    // INVITATIONS: Landlord and invited renter can read, landlord can create/delete, renter can update status/respond
+    // ===== INVITATION SYSTEM =====
+    
+    // Invitations: Landlord and invited renter can read, landlord can create/delete, renter can update status/respond
     match /invitations/{invitationId} {
       allow read: if request.auth != null && (
         request.auth.uid == resource.data.landlordId ||
@@ -124,6 +214,8 @@ service cloud.firestore {
       );
     }
 
+    // ===== APPLICATION SYSTEM =====
+    
     // Applications: Landlords can read, renters can CRUD their own
     match /applications/{applicationId} {
       allow read: if request.auth != null && (
@@ -146,6 +238,34 @@ service cloud.firestore {
       );
     }
 
+    // ===== TEMPLATE SYSTEM =====
+    
+    // PDF Templates: Admin only access
+    match /pdfTemplates/{templateId} {
+      allow read, write, update, delete: if request.auth != null &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // Filled PDFs: Landlords and renters can read their own
+    match /filledPdfs/{pdfId} {
+      allow read: if request.auth != null && (
+        request.auth.uid == resource.data.landlordId ||
+        request.auth.token.email == resource.data.landlordId ||
+        request.auth.uid == resource.data.renterId ||
+        request.auth.token.email == resource.data.renterId
+      );
+      allow create: if request.auth != null && (
+        request.auth.uid == request.resource.data.landlordId ||
+        request.auth.token.email == request.resource.data.landlordId
+      );
+      allow update, delete: if request.auth != null && (
+        request.auth.uid == resource.data.landlordId ||
+        request.auth.token.email == resource.data.landlordId
+      );
+    }
+
+    // ===== PROFILE MANAGEMENT =====
+    
     // Landlord Profiles: Only the landlord can CRUD their profile, but allow all authenticated users to read
     match /landlordProfiles/{profileId} {
       allow read: if request.auth != null;
@@ -171,9 +291,19 @@ service cloud.firestore {
       );
     }
 
+    // ===== ADMIN ACCESS =====
+    
     // Admin: Full access for admin users
     match /{document=**} {
       allow read, write: if request.auth != null &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // ===== TEST COLLECTION =====
+    
+    // Test: Admin only access
+    match /test/{testId} {
+      allow read, write, update, delete: if request.auth != null &&
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
   }

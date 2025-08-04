@@ -11,6 +11,7 @@ import {
   serverTimestamp,
 } from "firebase/firestore"
 import { db } from "../firebase"
+import { imageUploadService } from "./image-upload-service"
 import type { Property } from "@/types"
 
 export const propertyService = {
@@ -43,27 +44,76 @@ export const propertyService = {
     } as Property
   },
 
-  // Add a new property
-  async addProperty(property: Omit<Property, "id" | "createdAt" | "updatedAt">): Promise<string> {
+  // Add a new property with image uploads
+  async addProperty(property: Omit<Property, "id" | "createdAt" | "updatedAt">, imageFiles?: File[]): Promise<string> {
+    let imageUrls: string[] = []
+    
+    // Upload images if provided
+    if (imageFiles && imageFiles.length > 0) {
+      try {
+        imageUrls = await imageUploadService.uploadMultipleImages(imageFiles)
+      } catch (error) {
+        console.error("Error uploading images:", error)
+        throw new Error("Failed to upload images")
+      }
+    }
+
     const docRef = await addDoc(collection(db, "properties"), {
       ...property,
+      images: imageUrls,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     })
     return docRef.id
   },
 
-  // Update a property
-  async updateProperty(propertyId: string, property: Partial<Property>): Promise<void> {
+  // Update a property with image uploads
+  async updateProperty(propertyId: string, property: Partial<Property>, imageFiles?: File[], deletedImages?: string[]): Promise<void> {
+    let imageUrls: string[] = property.images || []
+    
+    // Upload new images if provided
+    if (imageFiles && imageFiles.length > 0) {
+      try {
+        const newImageUrls = await imageUploadService.uploadMultipleImages(imageFiles)
+        imageUrls = [...imageUrls, ...newImageUrls]
+      } catch (error) {
+        console.error("Error uploading images:", error)
+        throw new Error("Failed to upload images")
+      }
+    }
+
+    // Delete removed images from storage
+    if (deletedImages && deletedImages.length > 0) {
+      try {
+        await imageUploadService.deleteMultipleImages(deletedImages)
+      } catch (error) {
+        console.error("Error deleting images:", error)
+        // Don't throw error as images might already be deleted
+      }
+    }
+
     const docRef = doc(db, "properties", propertyId)
     await updateDoc(docRef, {
       ...property,
+      images: imageUrls,
       updatedAt: serverTimestamp(),
     })
   },
 
-  // Delete a property
+  // Delete a property and its images
   async deleteProperty(propertyId: string): Promise<void> {
+    // Get the property first to delete its images
+    const property = await this.getProperty(propertyId)
+    
+    if (property?.images && property.images.length > 0) {
+      try {
+        await imageUploadService.deleteMultipleImages(property.images)
+      } catch (error) {
+        console.error("Error deleting property images:", error)
+        // Continue with property deletion even if image deletion fails
+      }
+    }
+
     const docRef = doc(db, "properties", propertyId)
     await deleteDoc(docRef)
   }

@@ -20,12 +20,14 @@ interface NoticeFormProps {
   onSend: (notice: Partial<Notice>) => void
   onCancel: () => void
   properties?: Property[]
+  defaultPropertyId?: string
+  defaultRenterEmail?: string
 }
 
-export function NoticeForm({ prefilledProperty, onSend, onCancel, properties = [] }: NoticeFormProps) {
+export function NoticeForm({ prefilledProperty, onSend, onCancel, properties = [], defaultPropertyId, defaultRenterEmail }: NoticeFormProps) {
   const [formData, setFormData] = useState({
-    propertyId: prefilledProperty?.id || "",
-    renterId: "",
+    propertyId: defaultPropertyId || prefilledProperty?.id || "",
+    renterId: defaultRenterEmail || "",
     type: "custom" as Notice["type"],
     subject: "",
     message: "",
@@ -34,7 +36,7 @@ export function NoticeForm({ prefilledProperty, onSend, onCancel, properties = [
   // Remove local properties state and mock data
   // const [properties, setProperties] = useState<Property[]>([])
   const [isParaphrasing, setIsParaphrasing] = useState(false)
-  const [renterEmail, setRenterEmail] = useState("")
+  const [renterEmail, setRenterEmail] = useState(defaultRenterEmail || "")
   const { user } = useAuth()
 
   // useEffect(() => {
@@ -321,7 +323,7 @@ export function NoticeForm({ prefilledProperty, onSend, onCancel, properties = [
                 {!prefilledProperty && (
                   <div>
                     <Label htmlFor="property">Property *</Label>
-                    <Select value={formData.propertyId} onValueChange={(value) => updateField("propertyId", value)}>
+                    <Select value={formData.propertyId} onValueChange={(value) => updateField("propertyId", value)} disabled={properties.length === 1}>
                       <SelectTrigger>
                         <SelectValue placeholder="Select property" />
                       </SelectTrigger>
