@@ -18,6 +18,7 @@ import { invitationService } from "@/lib/services/invitation-service"
 import { leaseService } from "@/lib/services/lease-service"
 import { paymentService } from "@/lib/services/payment-service"
 import { securityDepositService } from "@/lib/services/security-deposit-service"
+import { notificationService } from "@/lib/services/notification-service"
 import { doc, getDoc } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 
@@ -61,6 +62,7 @@ export default function RenterDashboardPage() {
   const [selectedPdfUrl, setSelectedPdfUrl] = useState("");
   const [selectedPdfTitle, setSelectedPdfTitle] = useState("");
   const [selectedLeaseAgreementId, setSelectedLeaseAgreementId] = useState<string>("");
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
 
   useEffect(() => {
     setIsClient(true)
@@ -91,13 +93,15 @@ export default function RenterDashboardPage() {
         setRecentPayments([]);
         setSecurityDeposits([]);
       }
-      // Fetch notices and invitations as before
-      const [realNotices, realInvitations] = await Promise.all([
+      // Fetch notices, invitations, and notifications
+      const [realNotices, realInvitations, unreadCount] = await Promise.all([
         noticeService.getRenterNotices(user.email),
         invitationService.getInvitationsForEmail(user.email),
+        notificationService.getRenterUnreadCount(user.email),
       ])
       setNotices(realNotices)
       setInvitations(realInvitations)
+      setUnreadNotifications(unreadCount)
       // Optionally, fetch profile completion from Firestore
     }
     fetchData();
@@ -258,6 +262,7 @@ export default function RenterDashboardPage() {
   const navigateToProfile = () => router.push("/renter/profile")
   const navigateToNotices = () => router.push("/renter/notices")
   const navigateToPayments = () => router.push("/payments")
+  const navigateToNotifications = () => router.push("/renter/notifications")
 
   const handleAcceptLease = async () => {
     if (!currentLease) return;
@@ -632,7 +637,7 @@ export default function RenterDashboardPage() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-5">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Paid This Year</CardTitle>
@@ -693,6 +698,19 @@ export default function RenterDashboardPage() {
           <CardContent>
             <div className="text-2xl font-bold text-destructive">{unreadNotices.length}</div>
             <p className="text-xs text-muted-foreground">Require your attention</p>
+          </CardContent>
+        </Card>
+
+        <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={navigateToNotifications}>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Notifications</CardTitle>
+            <Bell className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-blue-600">{unreadNotifications}</div>
+            <p className="text-xs text-muted-foreground">
+              {unreadNotifications > 0 ? 'Unread notifications' : 'All caught up'}
+            </p>
           </CardContent>
         </Card>
       </div>

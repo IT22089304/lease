@@ -3,7 +3,8 @@ import { db } from "../firebase"
 
 export interface Notification {
   id: string
-  landlordId: string
+  landlordId?: string
+  renterId?: string
   type: "application_submitted" | "application_approved" | "application_rejected" | "invitation_sent" | "tenant_moved_in" | "payment_received" | "lease_completed" | "lease_received" | "invoice_sent"
   title: string
   message: string
@@ -45,11 +46,38 @@ export const notificationService = {
     })) as Notification[]
   },
 
+  // Get notifications for a renter
+  async getRenterNotifications(renterId: string): Promise<Notification[]> {
+    const q = query(
+      collection(db, "notifications"),
+      where("renterId", "==", renterId),
+      where("createdAt", ">", new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)) // Last 30 days
+    )
+    const snapshot = await getDocs(q)
+    return snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+      createdAt: doc.data().createdAt?.toDate(),
+      readAt: doc.data().readAt?.toDate(),
+    })) as Notification[]
+  },
+
   // Get unread notifications count for a landlord
   async getUnreadCount(landlordId: string): Promise<number> {
     const q = query(
       collection(db, "notifications"),
       where("landlordId", "==", landlordId),
+      where("readAt", "==", null)
+    )
+    const snapshot = await getDocs(q)
+    return snapshot.docs.length
+  },
+
+  // Get unread notifications count for a renter
+  async getRenterUnreadCount(renterId: string): Promise<number> {
+    const q = query(
+      collection(db, "notifications"),
+      where("renterId", "==", renterId),
       where("readAt", "==", null)
     )
     const snapshot = await getDocs(q)
@@ -69,6 +97,23 @@ export const notificationService = {
     const q = query(
       collection(db, "notifications"),
       where("landlordId", "==", landlordId),
+      where("readAt", "==", null)
+    )
+    const snapshot = await getDocs(q)
+    
+    const batch = writeBatch(db)
+    snapshot.docs.forEach(doc => {
+      batch.update(doc.ref, { readAt: serverTimestamp() })
+    })
+    
+    await batch.commit()
+  },
+
+  // Mark all notifications as read for a renter
+  async markAllRenterNotificationsAsRead(renterId: string): Promise<void> {
+    const q = query(
+      collection(db, "notifications"),
+      where("renterId", "==", renterId),
       where("readAt", "==", null)
     )
     const snapshot = await getDocs(q)

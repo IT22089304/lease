@@ -12,6 +12,7 @@ import {
 } from "firebase/firestore"
 import { db } from "../firebase"
 import type { Invoice, RentPayment } from "@/types"
+import { notificationService } from "./notification-service"
 
 export const invoiceService = {
   // Create a new invoice
@@ -21,6 +22,33 @@ export const invoiceService = {
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     })
+    
+    // Send notification to renter about the new invoice
+    try {
+      await notificationService.createNotification({
+        renterId: invoice.renterEmail, // Using email as renterId for now
+        type: "invoice_sent",
+        title: "New Invoice Received",
+        message: `You have received a new invoice for $${invoice.amount.toLocaleString()} for ${invoice.propertyDetails?.address?.street || "your property"}.`,
+        data: {
+          invoiceId: docRef.id,
+          propertyId: invoice.propertyId,
+          renterEmail: invoice.renterEmail,
+          amount: invoice.amount,
+          propertyAddress: invoice.propertyDetails?.address?.street,
+        },
+        navigation: {
+          type: "page",
+          path: "/payments",
+          params: { invoiceId: docRef.id },
+          action: "pay_invoice"
+        }
+      })
+    } catch (error) {
+      console.error("Error sending invoice notification:", error)
+      // Don't fail the invoice creation if notification fails
+    }
+    
     return docRef.id
   },
 
@@ -80,6 +108,35 @@ export const invoiceService = {
       status,
       updatedAt: serverTimestamp(),
     })
+    
+    // If status is changed to "paid", send notification to landlord
+    if (status === "paid") {
+      try {
+        const invoice = await this.getInvoice(invoiceId)
+        if (invoice && invoice.landlordId) {
+          await notificationService.createNotification({
+            landlordId: invoice.landlordId,
+            type: "payment_received",
+            title: "Payment Received",
+            message: `Payment of $${invoice.amount.toLocaleString()} has been received for invoice #${invoiceId.slice(-6)}.`,
+            data: {
+              invoiceId,
+              propertyId: invoice.propertyId,
+              renterEmail: invoice.renterEmail,
+              amount: invoice.amount,
+            },
+            navigation: {
+              type: "page",
+              path: "/dashboard/incomes",
+              action: "view_income"
+            }
+          })
+        }
+      } catch (error) {
+        console.error("Error sending payment notification:", error)
+        // Don't fail the invoice update if notification fails
+      }
+    }
   },
 
   // Create separate payment records from invoice breakdown

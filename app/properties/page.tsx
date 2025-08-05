@@ -56,7 +56,7 @@ export default function PropertiesPage() {
   }
 
   const handleCreateLease = (propertyId: string) => {
-    router.push(`/wizard/lease?propertyId=${propertyId}`)
+    router.push(`/properties/${propertyId}/leases`)
   }
 
   const handleSendNotice = (propertyId: string) => {
@@ -64,7 +64,7 @@ export default function PropertiesPage() {
   }
 
   const handleSendInvitation = (propertyId: string) => {
-    router.push(`/dashboard/invite/${propertyId}`)
+    router.push(`/properties/${propertyId}/invitations`)
   }
 
   const handleFindTenants = (propertyId: string) => {

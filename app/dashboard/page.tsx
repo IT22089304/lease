@@ -154,7 +154,11 @@ export default function DashboardPage() {
   }
 
   const handleCreateLease = (propertyId: string) => {
-    router.push(`/wizard/lease?propertyId=${propertyId}`)
+    router.push(`/properties/${propertyId}/leases`)
+  }
+
+  const handleEditProperty = (propertyId: string) => {
+    router.push(`/properties/${propertyId}/edit`)
   }
 
   const handleSendNotice = (propertyId: string) => {
@@ -162,7 +166,7 @@ export default function DashboardPage() {
   }
 
   const handleSendInvitation = (propertyId: string) => {
-    router.push(`/dashboard/invite/${propertyId}`)
+    router.push(`/properties/${propertyId}/invitations`)
   }
 
   const handleFindTenants = (propertyId: string) => {
@@ -302,6 +306,7 @@ export default function DashboardPage() {
                 renterInfo={renterInfo[property.id]}
                 onViewProperty={() => handleViewProperty(property.id)}
                 onCreateLease={() => handleCreateLease(property.id)}
+                onEditProperty={() => handleEditProperty(property.id)}
                 onSendNotice={() => handleSendNotice(property.id)}
                 onSendInvitation={() => handleSendInvitation(property.id)}
                 onFindTenants={() => handleFindTenants(property.id)}

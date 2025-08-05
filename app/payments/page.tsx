@@ -15,6 +15,7 @@ import type { RentPayment } from "@/types"
 import { leaseService } from "@/lib/services/lease-service"
 import { paymentService } from "@/lib/services/payment-service"
 import { invoiceService } from "@/lib/services/invoice-service"
+import { renterStatusService } from "@/lib/services/renter-status-service"
 import { loadStripe } from "@stripe/stripe-js"
 import { Elements, CardElement, useStripe, useElements } from "@stripe/react-stripe-js"
 import { saveAs } from "file-saver"
@@ -310,6 +311,24 @@ export default function PaymentsPage() {
         // Create separate payment records from invoice breakdown
         await invoiceService.createPaymentRecordsFromInvoice(selectedInvoice, paymentData.stripeId);
         
+        // Update renter status to "payment" if they were in "accepted" status
+        if (user?.email && selectedInvoice.propertyId) {
+          try {
+            const renterStatuses = await renterStatusService.getRenterStatusByEmail(user.email, selectedInvoice.propertyId);
+            const renterStatus = renterStatuses.find(rs => rs.status === "accepted");
+            
+            if (renterStatus && renterStatus.id) {
+              await renterStatusService.updateRenterStatus(renterStatus.id, {
+                status: "payment",
+                notes: "Payment received for invoice"
+              });
+            }
+          } catch (error) {
+            console.error("Error updating renter status:", error);
+            // Don't fail the payment if status update fails
+          }
+        }
+        
         setSelectedInvoice(null);
         setIsPaymentDialogOpen(false);
         setPaymentSuccess(true);
@@ -392,6 +411,25 @@ export default function PaymentsPage() {
         landlordId: currentLease.landlordId,  // Ensure these fields are included
       });
     }
+    
+    // Update renter status to "payment" for regular payments too
+    if (user?.email && currentLease?.propertyId) {
+      try {
+        const renterStatuses = await renterStatusService.getRenterStatusByEmail(user.email, currentLease.propertyId);
+        const renterStatus = renterStatuses.find(rs => rs.status === "accepted");
+        
+        if (renterStatus && renterStatus.id) {
+          await renterStatusService.updateRenterStatus(renterStatus.id, {
+            status: "payment",
+            notes: "Payment received"
+          });
+        }
+      } catch (error) {
+        console.error("Error updating renter status:", error);
+        // Don't fail the payment if status update fails
+      }
+    }
+    
     setIsPaymentDialogOpen(false);
     setPaymentSuccess(true);
     setTimeout(() => setPaymentSuccess(false), 4000);
@@ -532,7 +570,7 @@ export default function PaymentsPage() {
               }
             }}>
               <CreditCard className="h-4 w-4" />
-              Make Payment
+              {invoices.filter((i) => i.status === "sent").length > 0 ? "Pay Invoice" : "Make Payment"}
             </Button>
           </DialogTrigger>
           <DialogContent>
@@ -632,6 +670,49 @@ export default function PaymentsPage() {
           </Card>
         )}
       </div>
+
+      {/* Unpaid Invoices Section */}
+      {invoices.filter((i) => i.status === "sent").length > 0 && (
+        <Card className="border-orange-200 bg-orange-50">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-orange-800">
+              <DollarSign className="h-5 w-5" />
+              Unpaid Invoices
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {invoices.filter((i) => i.status === "sent").map((invoice) => (
+                <div key={invoice.id} className="flex items-center justify-between p-3 bg-white rounded-lg border border-orange-200">
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="font-semibold">Invoice #{invoice.id.slice(-6)}</span>
+                      <Badge variant="outline" className="text-orange-700 border-orange-300">
+                        ${invoice.amount.toLocaleString()}
+                      </Badge>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      {invoice.propertyDetails?.address?.street || "Property"} • Sent {new Date(invoice.createdAt).toLocaleDateString()}
+                    </p>
+                    {invoice.notes && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {invoice.notes}
+                      </p>
+                    )}
+                  </div>
+                  <Button 
+                    onClick={() => handlePayInvoice(invoice)}
+                    className="bg-orange-600 hover:bg-orange-700 text-white"
+                  >
+                    <CreditCard className="h-4 w-4 mr-2" />
+                    Pay Now
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Payment History */}
       <Card>
