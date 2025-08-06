@@ -28,7 +28,6 @@ interface NoticeViewerProps {
   onClose: () => void
   onViewLease?: () => void
   onViewInvoice?: () => void
-  onContactLandlord?: () => void
   onDownloadAttachment?: (url: string) => void
   propertyDetails?: {
     address: string
@@ -42,7 +41,6 @@ export function NoticeViewer({
   onClose,
   onViewLease,
   onViewInvoice,
-  onContactLandlord,
   onDownloadAttachment,
   propertyDetails = {
     address: "Property Address Not Available",
@@ -146,15 +144,7 @@ export function NoticeViewer({
       )
     }
 
-    // Contact Landlord action for urgent notices
-    if (getUrgencyLevel(notice.type) === "high" && onContactLandlord) {
-      actions.push(
-        <Button key="contact" variant="outline" onClick={onContactLandlord} className="flex-1">
-          <MessageCircle className="h-4 w-4 mr-2" />
-          Contact Landlord
-        </Button>
-      )
-    }
+
 
     return actions
   }
@@ -292,8 +282,7 @@ export function NoticeViewer({
                     This is an urgent notice that requires your attention
                   </p>
                   <p className="text-sm text-destructive/80">
-                    Please review the notice carefully and take any necessary actions. If you have questions,
-                    use the "Contact Landlord" button above to get in touch immediately.
+                    Please review the notice carefully and take any necessary actions.
                   </p>
                 </div>
               </div>

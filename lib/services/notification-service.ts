@@ -5,7 +5,7 @@ export interface Notification {
   id: string
   landlordId?: string
   renterId?: string
-  type: "application_submitted" | "application_approved" | "application_rejected" | "invitation_sent" | "tenant_moved_in" | "payment_received" | "lease_completed" | "lease_received" | "invoice_sent"
+  type: "application_submitted" | "application_approved" | "application_rejected" | "invitation_sent" | "tenant_moved_in" | "payment_received" | "lease_completed" | "lease_received" | "invoice_sent" | "renter_message"
   title: string
   message: string
   data?: any
@@ -22,11 +22,13 @@ export interface Notification {
 export const notificationService = {
   // Create a new notification
   async createNotification(notification: Omit<Notification, "id" | "createdAt">) {
+    console.log("[NotificationService] Creating notification:", notification);
     const docRef = await addDoc(collection(db, "notifications"), {
       ...notification,
       createdAt: serverTimestamp(),
       readAt: null,
     })
+    console.log("[NotificationService] Notification created with ID:", docRef.id);
     return docRef.id
   },
 
@@ -48,18 +50,22 @@ export const notificationService = {
 
   // Get notifications for a renter
   async getRenterNotifications(renterId: string): Promise<Notification[]> {
+    console.log("[NotificationService] Getting notifications for renter:", renterId);
     const q = query(
       collection(db, "notifications"),
       where("renterId", "==", renterId),
       where("createdAt", ">", new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)) // Last 30 days
     )
     const snapshot = await getDocs(q)
-    return snapshot.docs.map(doc => ({
+    console.log("[NotificationService] Found notifications:", snapshot.docs.length);
+    const notifications = snapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data(),
       createdAt: doc.data().createdAt?.toDate(),
       readAt: doc.data().readAt?.toDate(),
     })) as Notification[]
+    console.log("[NotificationService] Returning notifications:", notifications.length);
+    return notifications
   },
 
   // Get unread notifications count for a landlord
@@ -184,6 +190,13 @@ export const notificationService = {
           params: { tab: "sent" },
           action: "view_sent_notifications"
         }
+      case "renter_message":
+        return {
+          type: "page" as const,
+          path: `/dashboard/notice/${data?.propertyId || ""}`,
+          params: { tab: "received" },
+          action: "view_received_messages"
+        }
       default:
         return {
           type: "page" as const,
@@ -261,16 +274,21 @@ export const notificationService = {
   },
 
   // Create payment received notification
-  async notifyPaymentReceived(landlordId: string, propertyId: string, renterEmail: string, amount: number) {
+  async notifyPaymentReceived(landlordId: string, propertyId: string, renterEmail: string, amount: number, propertyName?: string, month?: string) {
+    const propertyTitle = propertyName || `Property ${propertyId.slice(-6)}`
+    const monthText = month ? ` for ${month}` : ""
+    
     const notification: Omit<Notification, "id" | "createdAt"> = {
       landlordId,
       type: "payment_received",
       title: "Payment Received",
-      message: `Payment of $${amount.toLocaleString()} has been received from ${renterEmail}.`,
+      message: `Payment of $${amount.toLocaleString()} received for ${propertyTitle}${monthText} from ${renterEmail}.`,
       data: {
         propertyId,
         renterEmail,
         amount,
+        propertyName: propertyTitle,
+        month,
       },
       navigation: this.getNotificationNavigation("payment_received", {
         propertyId
@@ -316,6 +334,28 @@ export const notificationService = {
       navigation: this.getNotificationNavigation("lease_received", {
         propertyId,
         leaseAgreementId
+      })
+    }
+    
+    return await this.createNotification(notification)
+  },
+
+  // Create renter message notification
+  async notifyRenterMessage(landlordId: string, propertyId: string, renterName: string, renterEmail: string, messagePreview: string, messageId: string) {
+    const notification: Omit<Notification, "id" | "createdAt"> = {
+      landlordId,
+      type: "renter_message",
+      title: "New Message from Tenant",
+      message: `${renterName} (${renterEmail}) sent you a message: "${messagePreview.length > 50 ? messagePreview.substring(0, 50) + '...' : messagePreview}"`,
+      data: {
+        propertyId,
+        renterName,
+        renterEmail,
+        messageId,
+        messagePreview,
+      },
+      navigation: this.getNotificationNavigation("renter_message", {
+        propertyId
       })
     }
     

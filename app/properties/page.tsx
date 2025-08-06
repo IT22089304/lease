@@ -90,6 +90,18 @@ export default function PropertiesPage() {
     router.push(`/dashboard/tenant/${propertyId}`)
   }
 
+  const handleViewApplications = (propertyId: string) => {
+    router.push(`/properties/${propertyId}/applications`)
+  }
+
+  const handleViewLeases = (propertyId: string) => {
+    router.push(`/properties/${propertyId}/leases`)
+  }
+
+  const handleViewNotices = (propertyId: string) => {
+    router.push(`/dashboard/notice/${propertyId}`)
+  }
+
   if (loading) {
     return <div className="container mx-auto p-6">Loading properties...</div>
   }
@@ -135,6 +147,9 @@ export default function PropertiesPage() {
               onViewIncome={handleViewIncome}
               onMakeAvailable={handleMakeAvailable}
               onViewTenantDetails={handleViewTenantDetails}
+              onViewApplications={handleViewApplications}
+              onViewLeases={handleViewLeases}
+              onViewNotices={handleViewNotices}
               leased={leased}
             />
           );

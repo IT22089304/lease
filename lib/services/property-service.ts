@@ -69,7 +69,9 @@ export const propertyService = {
 
   // Update a property with image uploads
   async updateProperty(propertyId: string, property: Partial<Property>, imageFiles?: File[], deletedImages?: string[]): Promise<void> {
-    let imageUrls: string[] = property.images || []
+    // Get existing property to preserve images if not being updated
+    const existingProperty = await this.getProperty(propertyId)
+    let imageUrls: string[] = property.images || existingProperty?.images || []
     
     // Upload new images if provided
     if (imageFiles && imageFiles.length > 0) {

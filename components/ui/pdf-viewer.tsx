@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { X, Download, ZoomIn, ZoomOut, Send, CheckCircle, Maximize2, Minimize2 } from "lucide-react"
 import { storage, db } from "@/lib/firebase"
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage"
@@ -34,6 +35,7 @@ interface PDFViewerProps {
   selectedNotice?: any
   onDownload?: () => void
   onSendInvoice?: (e?: React.MouseEvent) => void
+  approvedApplications?: any[]
 }
 
 export function PDFViewer({ 
@@ -56,7 +58,8 @@ export function PDFViewer({
   isLandlordView = false,
   selectedNotice,
   onDownload,
-  onSendInvoice
+  onSendInvoice,
+  approvedApplications = []
 }: PDFViewerProps) {
   const [scale, setScale] = useState(1)
   const [isMaximized, setIsMaximized] = useState(false)
@@ -503,16 +506,41 @@ startxref
                   <div className="flex items-center gap-4">
                     <div className="flex-1">
                       <Label htmlFor="receiver-email" className="text-sm">Receiver Email</Label>
-                      <Input
-                        id="receiver-email"
-                        type="email"
-                        placeholder="renter@example.com"
-                        value={receiverEmail}
-                        onChange={(e) => {
-                          onReceiverEmailChange?.(e.target.value)
-                        }}
-                        className="mt-1"
-                      />
+                      {approvedApplications && approvedApplications.length > 0 ? (
+                        <Select
+                          value={receiverEmail}
+                          onValueChange={(value) => {
+                            onReceiverEmailChange?.(value)
+                          }}
+                        >
+                          <SelectTrigger className="mt-1">
+                            <SelectValue placeholder="Select approved renter" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {approvedApplications.map((application) => (
+                              <SelectItem key={application.id} value={application.renterEmail}>
+                                {application.fullName || application.renterEmail} ({application.renterEmail})
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <div className="space-y-1">
+                          <Input
+                            id="receiver-email"
+                            type="email"
+                            placeholder="renter@example.com"
+                            value={receiverEmail}
+                            onChange={(e) => {
+                              onReceiverEmailChange?.(e.target.value)
+                            }}
+                            className="mt-1"
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            No approved applications found. You can manually enter the renter's email.
+                          </p>
+                        </div>
+                      )}
                     </div>
                     <div className="flex gap-2">
                       <div className="relative">

@@ -42,6 +42,7 @@ export default function PropertyLeasesPage() {
     includePetFee: false,
     notes: ""
   })
+  const [leasesWithInvoices, setLeasesWithInvoices] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     async function fetchData() {
@@ -104,6 +105,18 @@ export default function PropertyLeasesPage() {
           updatedAt: doc.data().updatedAt?.toDate(),
         }))
         setReceivedLeases(receivedLeasesData)
+
+        // Check which leases have invoices sent
+        const leasesWithInvoicesSet = new Set<string>()
+        for (const lease of receivedLeasesData) {
+          if ((lease as any).receiverEmail) {
+            const hasInvoice = await invoiceService.hasInvoiceBeenSent((lease as any).receiverEmail, propertyId)
+            if (hasInvoice) {
+              leasesWithInvoicesSet.add(lease.id)
+            }
+          }
+        }
+        setLeasesWithInvoices(leasesWithInvoicesSet)
         
       } catch (error) {
         console.error("Error fetching property leases:", error)
@@ -280,6 +293,11 @@ export default function PropertyLeasesPage() {
       }
 
       const invoiceId = await invoiceService.createInvoice(invoiceData)
+      
+      // Add this lease to the set of leases with invoices
+      if (selectedLeaseForInvoice?.id) {
+        setLeasesWithInvoices(prev => new Set([...prev, selectedLeaseForInvoice.id]))
+      }
       
       toast.success("Invoice sent successfully")
       setIsInvoiceDialogOpen(false)
@@ -537,10 +555,10 @@ export default function PropertyLeasesPage() {
                          variant="outline"
                          size="sm"
                          onClick={() => handleSendInvoice(lease)}
-                         disabled={isProcessing}
+                         disabled={isProcessing || leasesWithInvoices.has(lease.id)}
                        >
                          <Send className="h-4 w-4 mr-2" />
-                         Send Invoice
+                         {leasesWithInvoices.has(lease.id) ? "Invoice Sent" : "Send Invoice"}
                        </Button>
                        {shouldShowLeaseActions(lease) && (
                          <>

@@ -255,91 +255,6 @@ export default function RenterInvitationsPage() {
 
       {/* Invitations List */}
       <div className="space-y-4">
-        {/* Invitation Notices */}
-        {filteredNotices.length > 0 && (
-          <div className="space-y-4">
-            <h3 className="text-lg font-semibold">Invitation Notifications</h3>
-            {filteredNotices.map((notice) => (
-              <Card 
-                key={notice.id} 
-                className={`transition-all hover:shadow-md ${
-                  !notice.readAt ? 'border-l-4 border-l-blue-500 bg-blue-50/50' : ''
-                }`}
-              >
-                <CardContent className="p-6">
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-start gap-4 flex-1">
-                      <div className="flex-shrink-0">
-                        <Building className="h-8 w-8 text-blue-600" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-2">
-                          <h3 className="text-lg font-semibold truncate">
-                            {notice.subject}
-                          </h3>
-                          {!notice.readAt && (
-                            <Badge variant="secondary" className="text-xs">
-                              New
-                            </Badge>
-                          )}
-                          <Badge className="bg-blue-100 text-blue-700 text-xs">
-                            Invitation Notice
-                          </Badge>
-                        </div>
-                        <p className="text-muted-foreground line-clamp-2 mb-3">
-                          {notice.message}
-                        </p>
-                        <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                          <div className="flex items-center gap-1">
-                            <Calendar className="h-3 w-3" />
-                            <span>
-                              {new Date(notice.sentAt).toLocaleDateString()}
-                            </span>
-                          </div>
-                          {notice.readAt && (
-                            <div className="flex items-center gap-1">
-                              <CheckCircle className="h-3 w-3" />
-                              <span>Read {new Date(notice.readAt).toLocaleDateString()}</span>
-                            </div>
-                          )}
-                          {!notice.readAt && (
-                            <div className="flex items-center gap-1">
-                              <Clock className="h-3 w-3" />
-                              <span>Unread</span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2 ml-4">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            // Mark as read
-                            if (!notice.readAt) {
-                              noticeService.markAsRead(notice.id)
-                            }
-                            // Navigate to property view if propertyId exists
-                            if (notice.propertyId) {
-                              const property = properties[notice.propertyId]
-                              if (property) {
-                                handleViewProperty(property)
-                              }
-                            }
-                          }}
-                        >
-                          <Eye className="h-4 w-4 mr-2" />
-                          View Details
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        )}
-
         {/* Direct Invitations */}
         <div className="space-y-4">
           <h3 className="text-lg font-semibold">Direct Invitations</h3>
@@ -370,8 +285,23 @@ export default function RenterInvitationsPage() {
                     <div className="flex items-start justify-between">
                       <div className="flex items-start gap-4 flex-1">
                         <div className="flex-shrink-0">
-                          <div className="w-20 h-20 bg-muted rounded-lg flex items-center justify-center">
-                            <Building className="h-8 w-8 text-muted-foreground" />
+                          <div className="w-20 h-20 bg-muted rounded-lg overflow-hidden">
+                            {property.images && property.images.length > 0 ? (
+                              <img
+                                src={property.images[0]}
+                                alt={property.title || "Property"}
+                                className="w-full h-full object-cover"
+                                onError={(e) => {
+                                  // Fallback to building icon if image fails to load
+                                  const target = e.target as HTMLImageElement;
+                                  target.style.display = 'none';
+                                  target.nextElementSibling?.classList.remove('hidden');
+                                }}
+                              />
+                            ) : null}
+                            <div className={`w-full h-full flex items-center justify-center ${property.images && property.images.length > 0 ? 'hidden' : ''}`}>
+                              <Building className="h-8 w-8 text-muted-foreground" />
+                            </div>
                           </div>
                         </div>
                         <div className="flex-1 min-w-0">

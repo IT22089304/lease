@@ -95,6 +95,49 @@ export const applicationService = {
     }))
   },
 
+  async getApprovedApplicationsByProperty(propertyId: string) {
+    const q = query(
+      collection(db, "applications"), 
+      where("propertyId", "==", propertyId),
+      where("status", "==", "approved")
+    )
+    const snapshot = await getDocs(q)
+    return snapshot.docs.map(doc => ({ 
+      id: doc.id, 
+      ...doc.data(),
+      submittedAt: doc.data().submittedAt?.toDate?.(),
+      updatedAt: doc.data().updatedAt?.toDate?.(),
+      reviewedAt: doc.data().reviewedAt?.toDate?.(),
+    }))
+  },
+
+  async getApplication(applicationId: string) {
+    const docRef = doc(db, "applications", applicationId)
+    const docSnap = await getDoc(docRef)
+    if (!docSnap.exists()) {
+      return null
+    }
+    return { 
+      id: docSnap.id, 
+      ...docSnap.data(),
+      submittedAt: docSnap.data().submittedAt?.toDate?.(),
+      updatedAt: docSnap.data().updatedAt?.toDate?.(),
+      reviewedAt: docSnap.data().reviewedAt?.toDate?.(),
+    }
+  },
+
+  async getApplicationsByRenterEmail(renterEmail: string) {
+    const q = query(collection(db, "applications"), where("renterEmail", "==", renterEmail))
+    const snapshot = await getDocs(q)
+    return snapshot.docs.map(doc => ({ 
+      id: doc.id, 
+      ...doc.data(),
+      submittedAt: doc.data().submittedAt?.toDate?.(),
+      updatedAt: doc.data().updatedAt?.toDate?.(),
+      reviewedAt: doc.data().reviewedAt?.toDate?.(),
+    }))
+  },
+
   async updateApplicationStatus(applicationId: string, status: string) {
     const docRef = doc(db, "applications", applicationId)
     

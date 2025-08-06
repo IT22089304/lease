@@ -2,13 +2,15 @@
 
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
-import { CreditCard, FileText, Home, Bell, DollarSign, Calendar, AlertTriangle, Eye } from "lucide-react"
+import { CreditCard, FileText, Home, Bell, DollarSign, Calendar, AlertTriangle, Eye, User, Mail, Receipt, Settings, Upload, Send } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { PaymentDialog } from "@/components/renter/payment-dialog"
+import { Textarea } from "@/components/ui/textarea"
+import { Label } from "@/components/ui/label"
+
 import { NoticeViewer } from "@/components/renter/notice-viewer"
 import { PDFViewer } from "@/components/ui/pdf-viewer"
 import { useAuth } from "@/lib/auth"
@@ -19,8 +21,10 @@ import { leaseService } from "@/lib/services/lease-service"
 import { paymentService } from "@/lib/services/payment-service"
 import { securityDepositService } from "@/lib/services/security-deposit-service"
 import { notificationService } from "@/lib/services/notification-service"
-import { doc, getDoc } from "firebase/firestore"
+import { doc, getDoc, addDoc, collection, serverTimestamp } from "firebase/firestore"
 import { db } from "@/lib/firebase"
+import { FileUploadService } from "@/lib/services/file-upload-service"
+import { toast } from "sonner"
 
 // Helper to calculate profile completion percentage
 function getProfileCompletion(profile: any) {
@@ -51,18 +55,25 @@ export default function RenterDashboardPage() {
   const [notices, setNotices] = useState<Notice[]>([])
   const [profile, setProfile] = useState<RenterProfile | null>(null)
   const [profileCompletion, setProfileCompletion] = useState(0)
-  const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false)
   const [selectedNotice, setSelectedNotice] = useState<Notice | null>(null)
   const [isClient, setIsClient] = useState(false)
   const [invitations, setInvitations] = useState<any[]>([])
   const [landlordName, setLandlordName] = useState<string>("");
   const [propertyAddress, setPropertyAddress] = useState<string>("");
+  const [propertyTitle, setPropertyTitle] = useState<string>("");
+  const [propertyImage, setPropertyImage] = useState<string>("");
   const [securityDeposits, setSecurityDeposits] = useState<any[]>([]);
   const [isPdfViewerOpen, setIsPdfViewerOpen] = useState(false);
   const [selectedPdfUrl, setSelectedPdfUrl] = useState("");
   const [selectedPdfTitle, setSelectedPdfTitle] = useState("");
   const [selectedLeaseAgreementId, setSelectedLeaseAgreementId] = useState<string>("");
   const [unreadNotifications, setUnreadNotifications] = useState(0);
+  
+  // Contact Landlord Dialog State
+  const [isContactDialogOpen, setIsContactDialogOpen] = useState(false);
+  const [contactMessage, setContactMessage] = useState("");
+  const [contactFiles, setContactFiles] = useState<File[]>([]);
+  const [isSendingMessage, setIsSendingMessage] = useState(false);
 
   useEffect(() => {
     setIsClient(true)
@@ -86,6 +97,8 @@ export default function RenterDashboardPage() {
       // Fetch payments and security deposits for this lease
       if (lease) {
         const payments = await paymentService.getLeasePayments(lease.id);
+        // Sort payments by due date (oldest first) - same as payments page
+        payments.sort((a, b) => (a.dueDate?.getTime?.() || 0) - (b.dueDate?.getTime?.() || 0));
         setRecentPayments(payments);
         const deposits = await securityDepositService.getDepositsByLease(lease.id);
         setSecurityDeposits(deposits);
@@ -102,7 +115,6 @@ export default function RenterDashboardPage() {
       setNotices(realNotices)
       setInvitations(realInvitations)
       setUnreadNotifications(unreadCount)
-      // Optionally, fetch profile completion from Firestore
     }
     fetchData();
   }, [user?.email, isClient]);
@@ -136,10 +148,15 @@ export default function RenterDashboardPage() {
         const propRef = doc(db, "properties", currentLease.propertyId);
         const propSnap = await getDoc(propRef);
         if (propSnap.exists()) {
-          const addr = propSnap.data().address;
+          const propData = propSnap.data();
+          const addr = propData.address;
           setPropertyAddress(`${addr.street}${addr.unit ? ", Unit " + addr.unit : ""}, ${addr.city}, ${addr.state}`);
+          setPropertyTitle(propData.title || propData.name || "Property");
+          setPropertyImage(propData.imageUrl || propData.images?.[0] || "");
         } else {
           setPropertyAddress(currentLease.propertyId);
+          setPropertyTitle("Property");
+          setPropertyImage("");
         }
       }
     }
@@ -167,9 +184,33 @@ export default function RenterDashboardPage() {
   function getNextPaymentDue(lease: Lease | null, payments: RentPayment[], securityDeposits: any[]): { amount: number, label: string, daysUntilDue: number } {
     if (!lease) return { amount: 0, label: "No lease", daysUntilDue: 0 };
     
-    // Check if security deposit is paid
+    const now = new Date();
+    
+    // First, check for any pending payments (these take priority)
+    const pendingPayments = payments.filter((p) => p.status === "pending");
+    
+    if (pendingPayments.length > 0) {
+      // Sort pending payments by due date (earliest first)
+      const sortedPendingPayments = pendingPayments.sort((a, b) => {
+        const aDate = a.dueDate ? new Date(a.dueDate) : new Date(0);
+        const bDate = b.dueDate ? new Date(b.dueDate) : new Date(0);
+        return aDate.getTime() - bDate.getTime();
+      });
+      
+      // Get the earliest pending payment
+      const nextPayment = sortedPendingPayments[0];
+      const dueDate = nextPayment.dueDate ? new Date(nextPayment.dueDate) : new Date();
+      const daysUntilDue = Math.floor((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+      
+      return { 
+        amount: nextPayment.amount, 
+        label: `Monthly Rent: $${nextPayment.amount}`, 
+        daysUntilDue: daysUntilDue // Allow negative values for overdue payments
+      };
+    }
+    
+    // If no pending payments, check if we need initial payments (security deposit + first month)
     const depositPaid = securityDeposits.some((d: any) => d.amount >= lease.securityDeposit);
-    // Check if first month rent is paid
     const firstRentPaid = payments.some((p: RentPayment) => p.status === "paid" && p.amount >= lease.monthlyRent);
     
     if (!depositPaid || !firstRentPaid) {
@@ -187,7 +228,7 @@ export default function RenterDashboardPage() {
       return { amount: due, label: labelParts.join(" + "), daysUntilDue: 0 };
     }
     
-    // Find the last paid payment to calculate next billing cycle
+    // If all initial payments are made and no pending payments, calculate next billing cycle
     const paidPayments = payments.filter(p => p.status === "paid").sort((a, b) => 
       new Date(b.paidDate || b.dueDate).getTime() - new Date(a.paidDate || a.dueDate).getTime()
     );
@@ -195,8 +236,7 @@ export default function RenterDashboardPage() {
     if (paidPayments.length === 0) {
       // No paid payments, use lease start date
       const leaseStartDate = new Date(lease.startDate);
-      const now = new Date();
-      const daysUntilDue = Math.ceil((leaseStartDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+      const daysUntilDue = Math.floor((leaseStartDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
       return { 
         amount: lease.monthlyRent, 
         label: `Monthly Rent: $${lease.monthlyRent}`, 
@@ -206,12 +246,10 @@ export default function RenterDashboardPage() {
     
     // Get the last paid payment date
     const lastPaidDate = new Date(paidPayments[0].paidDate || paidPayments[0].dueDate);
-    const now = new Date();
     
-    // Calculate next billing cycle: last payment date + 30 days - days spent in paid month
-    const daysSpentInPaidMonth = Math.ceil((now.getTime() - lastPaidDate.getTime()) / (1000 * 60 * 60 * 24));
+    // Calculate next billing cycle: last payment date + 30 days
     const nextBillingDate = new Date(lastPaidDate);
-    nextBillingDate.setDate(nextBillingDate.getDate() + 30 - daysSpentInPaidMonth);
+    nextBillingDate.setDate(nextBillingDate.getDate() + 30);
     
     // If next billing date is in the past, it means we're overdue
     if (nextBillingDate <= now) {
@@ -222,7 +260,7 @@ export default function RenterDashboardPage() {
       };
     }
     
-    const daysUntilDue = Math.ceil((nextBillingDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    const daysUntilDue = Math.floor((nextBillingDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
     
     return { 
       amount: lease.monthlyRent, 
@@ -236,33 +274,106 @@ export default function RenterDashboardPage() {
   const totalPaid = recentPayments.filter((p) => p.status === "paid").reduce((sum, p) => sum + p.amount, 0)
     + securityDeposits.reduce((sum, d) => sum + (d.amount || 0), 0);
 
-  const handlePaymentSuccess = (paymentData: any) => {
-    console.log("Payment processed:", paymentData)
-    // Update the payment status
-    setRecentPayments((prev) =>
-      prev.map((payment) =>
-        payment.status === "pending"
-          ? {
-              ...payment,
-              status: "paid",
-              paidDate: new Date(),
-              paymentMethod: paymentData.method,
-              transactionId: `TXN${Date.now()}`,
-            }
-          : payment,
-      ),
-    )
-    setIsPaymentDialogOpen(false)
-  }
+
 
   const markNoticeAsRead = (noticeId: string) => {
     setNotices((prev) => prev.map((notice) => (notice.id === noticeId ? { ...notice, readAt: new Date() } : notice)))
   }
 
+  // Navigation functions
   const navigateToProfile = () => router.push("/renter/profile")
   const navigateToNotices = () => router.push("/renter/notices")
   const navigateToPayments = () => router.push("/payments")
+  const navigateToInvoices = () => router.push("/renter/invoices")
+  const navigateToInvitations = () => router.push("/renter/invitations")
   const navigateToNotifications = () => router.push("/renter/notifications")
+  const navigateToApplications = () => router.push("/renter/applications")
+
+  const handleContactLandlord = async () => {
+    if (!contactMessage.trim() && contactFiles.length === 0) {
+      toast.error("Please enter a message or attach files");
+      return;
+    }
+
+    if (!currentLease || !user) {
+      toast.error("Unable to send message. Please try again.");
+      return;
+    }
+
+    setIsSendingMessage(true);
+    try {
+      let uploadedFiles: Array<{ name: string; size: number; type: string; url: string }> = [];
+      
+      // Upload files if any are attached
+      if (contactFiles.length > 0) {
+        try {
+          uploadedFiles = await FileUploadService.uploadFiles(
+            contactFiles, 
+            "messages", 
+            user.id
+          );
+          console.log("Files uploaded successfully:", uploadedFiles);
+        } catch (uploadError) {
+          console.error("Error uploading files:", uploadError);
+          toast.error("Failed to upload files. Please try again.");
+          return;
+        }
+      }
+
+      // Create the message document
+      const messageData = {
+        renterId: user.id,
+        renterEmail: user.email,
+        renterName: user.name,
+        landlordId: currentLease.landlordId,
+        propertyId: currentLease.propertyId,
+        leaseId: currentLease.id,
+        message: contactMessage.trim(),
+        files: uploadedFiles,
+        status: "unread",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      };
+
+      // Save to Firestore
+      const docRef = await addDoc(collection(db, "landlordMessages"), messageData);
+
+      // Send notification to landlord
+      try {
+        await notificationService.notifyRenterMessage(
+          currentLease.landlordId,
+          currentLease.propertyId,
+          user.name,
+          user.email,
+          contactMessage.trim(),
+          docRef.id
+        );
+        console.log("Notification sent to landlord successfully");
+      } catch (notificationError) {
+        console.error("Error sending notification:", notificationError);
+        // Don't fail the message send if notification fails
+      }
+
+      toast.success("Message sent successfully!");
+      setIsContactDialogOpen(false);
+      setContactMessage("");
+      setContactFiles([]);
+    } catch (error) {
+      console.error("Error sending message:", error);
+      toast.error("Failed to send message. Please try again.");
+    } finally {
+      setIsSendingMessage(false);
+    }
+  };
+
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []);
+    setContactFiles(prev => [...prev, ...files]);
+  };
+
+  const removeFile = (index: number) => {
+    setContactFiles(prev => prev.filter((_, i) => i !== index));
+  };
 
   const handleAcceptLease = async () => {
     if (!currentLease) return;
@@ -359,16 +470,12 @@ export default function RenterDashboardPage() {
       handleViewLease(item);
     } else {
       // For other notices, navigate to the notices page
-              router.push("/renter/dashboard");
+      router.push("/renter/notices");
     }
   };
 
   if (!isClient) {
     return null // Prevent hydration issues by not rendering anything on server
-  }
-
-  if (!user || user.role !== "renter") {
-    return <div>Access denied. Renter access required.</div>
   }
 
   const nextPayment = getNextPaymentDue(currentLease, recentPayments, securityDeposits);
@@ -427,10 +534,16 @@ export default function RenterDashboardPage() {
 
   return (
     <div className="container mx-auto p-6 space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-primary">Renter Dashboard</h1>
-        <p className="text-muted-foreground">Welcome back, {user.name}. Manage your rental information and payments.</p>
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-primary">Renter Dashboard</h1>
+          <p className="text-muted-foreground">Welcome back, {user?.name || 'User'}. Manage your rental information and payments.</p>
+        </div>
+
       </div>
+
+
 
       {/* Alerts Section */}
       <div className="space-y-4">
@@ -481,25 +594,7 @@ export default function RenterDashboardPage() {
           </Card>
         )}
 
-        {/* Unread Notices Alert */}
-        {unreadNotices.filter(n => n.type !== "lease_received" && n.type !== "lease_completed").length > 0 && (
-          <Card className="border-destructive/50 bg-destructive/5">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-destructive">
-                <AlertTriangle className="h-5 w-5" />
-                {unreadNotices.filter(n => n.type !== "lease_received" && n.type !== "lease_completed").length} Unread Notice{unreadNotices.filter(n => n.type !== "lease_received" && n.type !== "lease_completed").length > 1 ? "s" : ""}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground mb-3">
-                You have important notices from your landlord that require your attention.
-              </p>
-              <Button size="sm" variant="destructive" onClick={navigateToNotices}>
-                View Notices
-              </Button>
-            </CardContent>
-          </Card>
-        )}
+
       </div>
 
       {/* Main Dashboard Content */}
@@ -517,12 +612,27 @@ export default function RenterDashboardPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <p className="text-sm text-muted-foreground">Property</p>
-                  <p className="font-medium">{propertyAddress}</p>
-                  <p className="text-sm text-muted-foreground">Unit A</p>
+              {/* Property Image and Title */}
+              <div className="flex items-start space-x-4">
+                {propertyImage && (
+                  <div className="flex-shrink-0">
+                    <img 
+                      src={propertyImage} 
+                      alt={propertyTitle}
+                      className="w-20 h-20 object-cover rounded-lg border"
+                      onError={(e) => {
+                        e.currentTarget.style.display = 'none';
+                      }}
+                    />
+                  </div>
+                )}
+                <div className="flex-1">
+                  <h3 className="text-lg font-semibold text-gray-900">{propertyTitle}</h3>
+                  <p className="text-sm text-muted-foreground">{propertyAddress}</p>
                 </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <p className="text-sm text-muted-foreground">Monthly Rent</p>
                   <p className="font-medium text-lg">${currentLease.monthlyRent.toLocaleString()}</p>
@@ -544,16 +654,107 @@ export default function RenterDashboardPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4 pt-4">
-                <Button variant="outline" size="sm" onClick={handleViewCurrentLease}>
-                  <FileText className="h-4 w-4 mr-2" />
-                  View Lease
-                </Button>
-                <Button variant="outline" size="sm">
-                  Contact Landlord
-                </Button>
+              <div className="grid grid-cols-1 gap-4 pt-4">
+                <Dialog open={isContactDialogOpen} onOpenChange={setIsContactDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button variant="outline" size="sm">
+                      Contact Landlord
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="max-w-md">
+                    <DialogHeader>
+                      <DialogTitle>Contact Landlord</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4">
+                      <div>
+                        <Label htmlFor="message">Message</Label>
+                        <Textarea
+                          id="message"
+                          placeholder="Enter your message to the landlord..."
+                          value={contactMessage}
+                          onChange={(e) => setContactMessage(e.target.value)}
+                          rows={4}
+                        />
+                      </div>
+                      
+                      <div>
+                        <Label htmlFor="files">Attach Files (Optional)</Label>
+                        <div className="mt-2">
+                          <input
+                            type="file"
+                            id="files"
+                            multiple
+                            onChange={handleFileUpload}
+                            className="hidden"
+                          />
+                          <label htmlFor="files" className="cursor-pointer">
+                            <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-gray-400 transition-colors">
+                              <Upload className="h-6 w-6 mx-auto mb-2 text-gray-400" />
+                              <p className="text-sm text-gray-600">Click to upload files</p>
+                              <p className="text-xs text-gray-500">PDF, images, documents</p>
+                            </div>
+                          </label>
+                        </div>
+                      </div>
+
+                      {contactFiles.length > 0 && (
+                        <div>
+                          <Label>Attached Files</Label>
+                          <div className="space-y-2 mt-2">
+                            {contactFiles.map((file, index) => (
+                              <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                                <div className="flex items-center space-x-2">
+                                  <FileText className="h-4 w-4 text-gray-500" />
+                                  <span className="text-sm">{file.name}</span>
+                                  <span className="text-xs text-gray-500">
+                                    ({(file.size / 1024).toFixed(1)} KB)
+                                  </span>
+                                </div>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => removeFile(index)}
+                                  className="text-red-500 hover:text-red-700"
+                                >
+                                  ×
+                                </Button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="flex gap-2 pt-4">
+                        <Button
+                          onClick={handleContactLandlord}
+                          disabled={isSendingMessage || (!contactMessage.trim() && contactFiles.length === 0)}
+                          className="flex-1"
+                        >
+                          {isSendingMessage ? (
+                            <>
+                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                              Sending...
+                            </>
+                          ) : (
+                            <>
+                              <Send className="h-4 w-4 mr-2" />
+                              Send Message
+                            </>
+                          )}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          onClick={() => setIsContactDialogOpen(false)}
+                          disabled={isSendingMessage}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  </DialogContent>
+                </Dialog>
                 {!currentLease.signatureStatus.renterSigned && (
-                  <Button onClick={handleAcceptLease} variant="default" className="col-span-2">
+                  <Button onClick={handleAcceptLease} variant="default">
                     Accept Lease
                   </Button>
                 )}
@@ -562,33 +763,7 @@ export default function RenterDashboardPage() {
           </Card>
         )}
 
-        {/* Next Payment Due Card */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-3xl text-center">Next Payment Due</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-col items-center justify-center py-8">
-              <p className="text-5xl font-extrabold text-primary mb-2">${nextPayment.amount.toLocaleString()}</p>
-              <p className="text-lg text-muted-foreground mb-2">{nextPayment.label}</p>
-              
-              {/* Show Pay Now only when due today or overdue, otherwise show status */}
-              {nextPayment.amount > 0 ? (
-                nextPayment.daysUntilDue === 0 || nextPayment.label.includes('Overdue') ? (
-                  <Button size="lg" className="text-lg px-8 py-4" onClick={navigateToPayments}>
-                    Pay Now
-                  </Button>
-                ) : (
-                  <Badge variant="outline" className="text-lg px-6 py-2">
-                    Due in {nextPayment.daysUntilDue} days
-                  </Badge>
-                )
-              ) : (
-                <Badge variant="default" className="text-lg px-6 py-2">All Paid</Badge>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+
 
         {/* Next Payment */}
         {nextPaymentDue && (
@@ -613,31 +788,17 @@ export default function RenterDashboardPage() {
                   )}
                 </div>
               </div>
-              <Dialog open={isPaymentDialogOpen} onOpenChange={setIsPaymentDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button className="w-full">
-                    <CreditCard className="h-4 w-4 mr-2" />
-                    Pay Rent
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Pay Rent</DialogTitle>
-                  </DialogHeader>
-                  <PaymentDialog
-                    amount={nextPaymentDue.amount}
-                    onSuccess={handlePaymentSuccess}
-                    onCancel={() => setIsPaymentDialogOpen(false)}
-                  />
-                </DialogContent>
-              </Dialog>
+              <Button className="w-full" onClick={navigateToPayments}>
+                <CreditCard className="h-4 w-4 mr-2" />
+                Pay Rent
+              </Button>
             </CardContent>
           </Card>
         )}
       </div>
 
       {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-5">
+      <div className="grid gap-4 md:grid-cols-3">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Paid This Year</CardTitle>
@@ -658,16 +819,19 @@ export default function RenterDashboardPage() {
           </CardHeader>
           <CardContent>
             <div className={`text-2xl font-bold ${
-              nextPayment.daysUntilDue === 0 ? 'text-destructive' :
+              nextPayment.daysUntilDue <= 0 ? 'text-destructive' :
               nextPayment.daysUntilDue <= 7 ? 'text-destructive' :
               nextPayment.daysUntilDue <= 14 ? 'text-warning' :
               'text-primary'
             }`}>
-              {nextPayment.amount > 0 ? nextPayment.daysUntilDue : 'N/A'}
+              {nextPayment.amount > 0 ? 
+                (nextPayment.daysUntilDue <= 0 ? Math.abs(nextPayment.daysUntilDue) : nextPayment.daysUntilDue) : 
+                'N/A'}
             </div>
             <p className="text-xs text-muted-foreground">
               {nextPayment.amount > 0 ? 
-                (nextPayment.daysUntilDue === 0 ? 'Due today!' :
+                (nextPayment.daysUntilDue < 0 ? `${Math.abs(nextPayment.daysUntilDue)} days overdue` :
+                 nextPayment.daysUntilDue === 0 ? 'Due today!' :
                  nextPayment.daysUntilDue === 1 ? 'Due tomorrow' :
                  `Due in ${nextPayment.daysUntilDue} days`) : 
                 'No payments due'}
@@ -690,75 +854,11 @@ export default function RenterDashboardPage() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Unread Notices</CardTitle>
-            <Bell className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-destructive">{unreadNotices.length}</div>
-            <p className="text-xs text-muted-foreground">Require your attention</p>
-          </CardContent>
-        </Card>
 
-        <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={navigateToNotifications}>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Notifications</CardTitle>
-            <Bell className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-blue-600">{unreadNotifications}</div>
-            <p className="text-xs text-muted-foreground">
-              {unreadNotifications > 0 ? 'Unread notifications' : 'All caught up'}
-            </p>
-          </CardContent>
-        </Card>
       </div>
 
       {/* Recent Activity */}
       <div className="grid gap-6 lg:grid-cols-2">
-        {/* Payment History */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Recent Payments</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {recentPayments.slice(0, 3).map((payment) => (
-                <div key={payment.id} className="flex items-center justify-between p-3 border rounded-lg">
-                  <div>
-                    <p className="font-medium">${payment.amount.toLocaleString()}</p>
-                    <p className="text-sm text-muted-foreground">
-                      Due: {new Date(payment.dueDate).toLocaleDateString()}
-                      {payment.paidDate && ` • Paid: ${new Date(payment.paidDate).toLocaleDateString()}`}
-                    </p>
-                    {payment.paymentMethod && (
-                      <p className="text-xs text-muted-foreground">
-                        {payment.paymentMethod}
-                        {payment.transactionId && ` • ${payment.transactionId}`}
-                      </p>
-                    )}
-                  </div>
-                  <Badge
-                    className={
-                      payment.status === "paid"
-                        ? "status-paid"
-                        : payment.status === "overdue"
-                          ? "status-overdue"
-                          : "status-badge bg-warning/10 text-warning border-warning/20"
-                    }
-                  >
-                    {payment.status === "paid" ? "Paid" : payment.status === "overdue" ? "Overdue" : "Pending"}
-                  </Badge>
-                </div>
-              ))}
-              <Button variant="outline" className="w-full" onClick={navigateToPayments}>
-                View All Payments
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
         {/* Upcoming Payment Schedule */}
         <Card>
           <CardHeader>
@@ -768,8 +868,8 @@ export default function RenterDashboardPage() {
           <CardContent>
             <div className="space-y-4">
               {nextPaymentSchedule.length > 0 ? (
-                nextPaymentSchedule.slice(0, 4).map((payment, index) => {
-                  const daysUntil = Math.ceil((payment.date.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+                nextPaymentSchedule.slice(0, 2).map((payment, index) => {
+                  const daysUntil = Math.floor((payment.date.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
                   return (
                     <div key={index} className="flex items-center justify-between p-3 border rounded-lg">
                       <div>
@@ -818,7 +918,7 @@ export default function RenterDashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {[...notices, ...invitations].slice(0, 3).map((item) => {
+              {[...notices, ...invitations].slice(0, 2).map((item) => {
                 const isInvitation = !!item.status && !!item.invitedAt;
                 return (
                   <div

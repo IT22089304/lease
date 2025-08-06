@@ -138,6 +138,7 @@ export interface RentPayment {
   transactionId?: string
   paymentType?: "monthly_rent" | "application_fee" | "pet_fee" | "security_deposit"
   invoiceId?: string
+  monthName?: string
   createdAt: Date
   renterId?: string
   landlordId?: string

@@ -3,7 +3,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { MapPin, Bed, Bath, Square, Eye, Send, FileText, User, DollarSign, Home } from "lucide-react"
+import { MapPin, Bed, Bath, Square, Eye, Send, FileText, User, DollarSign, Home, ClipboardList } from "lucide-react"
 import type { Property } from "@/types"
 import { useRouter } from "next/navigation"
 
@@ -18,6 +18,9 @@ interface PropertyCardProps {
   onViewIncome?: (id: string) => void
   onMakeAvailable?: (id: string) => void
   onViewTenantDetails?: (id: string) => void
+  onViewApplications?: (id: string) => void
+  onViewLeases?: (id: string) => void
+  onViewNotices?: (id: string) => void
   leased?: boolean
   renterInfo?: {
     name: string
@@ -36,6 +39,9 @@ export function PropertyCard({
   onViewIncome,
   onMakeAvailable,
   onViewTenantDetails,
+  onViewApplications,
+  onViewLeases,
+  onViewNotices,
   leased,
   renterInfo
 }: PropertyCardProps) {
@@ -140,15 +146,25 @@ export function PropertyCard({
               Invite
             </Button>
           )}
-          {!leased && property.status !== "occupied" && (
-            <Button variant="outline" onClick={() => onFindTenants?.(property.id)}>
-              <User className="h-4 w-4 mr-2" />
-              Find Tenants
-            </Button>
-          )}
+          <Button variant="outline" onClick={() => onFindTenants?.(property.id)}>
+            <User className="h-4 w-4 mr-2" />
+            Find Tenants
+          </Button>
           <Button variant="outline" onClick={() => onViewIncome?.(property.id)}>
             <DollarSign className="h-4 w-4 mr-2" />
             Income
+          </Button>
+          <Button variant="outline" onClick={() => onViewApplications?.(property.id)}>
+            <ClipboardList className="h-4 w-4 mr-2" />
+            Applications
+          </Button>
+          <Button variant="outline" onClick={() => onViewLeases?.(property.id)}>
+            <FileText className="h-4 w-4 mr-2" />
+            Leases
+          </Button>
+          <Button variant="outline" onClick={() => onViewNotices?.(property.id)}>
+            <Send className="h-4 w-4 mr-2" />
+            Notices
           </Button>
           {property.status === "occupied" && !leased && (
             <Button variant="outline" onClick={() => onMakeAvailable?.(property.id)}>

@@ -1,6 +1,6 @@
 "use client"
 
-import { Bell, LogOut, Settings, User, Home, CreditCard, FileText, Send, Eye, CheckCircle, Mail } from "lucide-react"
+import { Bell, LogOut, Settings, User, Home, CreditCard, FileText, Send, Eye, CheckCircle, Mail, Receipt } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -38,18 +38,39 @@ export function Header() {
           setNotifications(landlordNotifications);
           setUnreadCount(landlordNotifications.filter(n => !n.readAt).length);
         } else if (user.role === "renter" && user.email) {
-          // Fetch renter notices and invitations
-          const [realNotices, realInvitations] = await Promise.all([
+          // Fetch renter notifications, notices and invitations
+          const [renterNotifications, realNotices, realInvitations] = await Promise.all([
+            notificationService.getRenterNotifications(user.email),
             noticeService.getRenterNotices(user.email),
             invitationService.getInvitationsForEmail(user.email),
           ]);
+          
+          console.log("[Header] Renter notifications:", renterNotifications.length);
+          console.log("[Header] Renter notices:", realNotices.length);
+          console.log("[Header] Renter invitations:", realInvitations.length);
+          console.log("[Header] Sample notices:", realNotices.slice(0, 2).map(n => ({
+            id: n.id,
+            subject: n.subject,
+            sentAt: n.sentAt,
+            readAt: n.readAt
+          })));
+          
+          setNotifications(renterNotifications);
           setNotices(realNotices);
           setInvitations(realInvitations);
           
-          // Calculate unread count (notices + invitations)
+          // Calculate unread count (notifications + notices + invitations)
+          const unreadNotifications = renterNotifications.filter(n => !n.readAt).length;
           const unreadNotices = realNotices.filter(n => !n.readAt).length;
           const unreadInvitations = realInvitations.filter((i: any) => i.status === 'pending').length;
-          setUnreadCount(unreadNotices + unreadInvitations);
+          setUnreadCount(unreadNotifications + unreadNotices + unreadInvitations);
+          
+          console.log("[Header] Unread counts:", {
+            notifications: unreadNotifications,
+            notices: unreadNotices,
+            invitations: unreadInvitations,
+            total: unreadNotifications + unreadNotices + unreadInvitations
+          });
         }
       } catch (error) {
         console.error('Error fetching notifications:', error);
@@ -72,9 +93,10 @@ export function Header() {
       case "renter":
         return [
           { label: "Dashboard", href: "/renter/dashboard", icon: Home },
-          { label: "Invitations", href: "/renter/invitations", icon: Mail },
-          { label: "Notices", href: "/renter/notices", icon: Bell },
           { label: "Payments", href: "/payments", icon: CreditCard },
+          { label: "Invoices", href: "/renter/invoices", icon: Receipt },
+          { label: "Notices", href: "/renter/notices", icon: Bell },
+          { label: "Invitations", href: "/renter/invitations", icon: Mail },
           { label: "Profile", href: "/renter/profile", icon: User },
         ]
       case "admin":
@@ -94,8 +116,14 @@ export function Header() {
           await notificationService.markAsRead(item.id);
           setNotifications(prev => prev.map(n => n.id === item.id ? { ...n, readAt: new Date() } : n));
         } else {
-          await noticeService.markAsRead(item.id);
-          setNotices(prev => prev.map(n => n.id === item.id ? { ...n, readAt: new Date() } : n));
+          // For renters, handle different types
+          if (item._type === "notification") {
+            await notificationService.markAsRead(item.id);
+            setNotifications(prev => prev.map(n => n.id === item.id ? { ...n, readAt: new Date() } : n));
+          } else if (item._type === "notice") {
+            await noticeService.markAsRead(item.id);
+            setNotices(prev => prev.map(n => n.id === item.id ? { ...n, readAt: new Date() } : n));
+          }
         }
         setUnreadCount(prev => Math.max(0, prev - 1));
       }
@@ -129,6 +157,26 @@ export function Header() {
           window.location.href = `/renter/applications/new?invitationId=${item.id}`;
         } else if (item._type === "notice") {
           window.location.href = "/renter/notices";
+        } else if ('navigation' in item && item.navigation) {
+          // Handle notifications with navigation data
+          const nav = item.navigation;
+          let url = nav.path;
+          
+          // Add query parameters if they exist
+          if (nav.params) {
+            const params = new URLSearchParams();
+            Object.entries(nav.params).forEach(([key, value]) => {
+              if (value) params.append(key, value.toString());
+            });
+            if (params.toString()) {
+              url += `?${params.toString()}`;
+            }
+          }
+          
+          window.location.href = url;
+        } else {
+          // Fallback to notifications page
+          window.location.href = "/renter/notifications";
         }
       }
     } catch (error) {
@@ -143,9 +191,16 @@ export function Header() {
         await notificationService.markAllAsRead(user.id);
         setNotifications(prev => prev.map(n => ({ ...n, readAt: n.readAt || new Date() })));
       } else {
-        // Mark all renter notices as read
+        // Mark all renter notifications and notices as read
+        const unreadNotifications = notifications.filter(n => !n.readAt);
         const unreadNotices = notices.filter(n => !n.readAt);
-        await Promise.all(unreadNotices.map(notice => noticeService.markAsRead(notice.id)));
+        
+        await Promise.all([
+          ...unreadNotifications.map(notification => notificationService.markAsRead(notification.id)),
+          ...unreadNotices.map(notice => noticeService.markAsRead(notice.id))
+        ]);
+        
+        setNotifications(prev => prev.map(n => ({ ...n, readAt: n.readAt || new Date() })));
         setNotices(prev => prev.map(n => ({ ...n, readAt: n.readAt || new Date() })));
       }
       setUnreadCount(0);
@@ -176,13 +231,57 @@ export function Header() {
   const allNotifications = user.role === "landlord" 
     ? notifications.slice(0, 5) // For landlords, show notifications
     : [
-        ...notices.filter(n => !n.readAt).map((n) => ({ ...n, _type: "notice" })),
+        ...notifications.map((n) => ({ ...n, _type: "notification" })),
+        ...notices.map((n) => ({ ...n, _type: "notice" })),
         ...invitations.map((i) => ({ ...i, _type: "invitation" })),
-      ].sort((a, b) => {
-        const aDate = a.sentAt || a.invitedAt || new Date(0);
-        const bDate = b.sentAt || b.invitedAt || new Date(0);
+      ].filter((item) => {
+        // Filter out items with invalid dates
+        if (item._type === "notice") {
+          const isValid = item.sentAt && !isNaN(new Date(item.sentAt).getTime());
+          if (!isValid) {
+            console.log("[Header] Filtering out notice with invalid date:", item.id, item.sentAt);
+          }
+          return isValid;
+        } else if (item._type === "invitation") {
+          // For invitations, check both invitedAt and createdAt
+          const isValid = (item.invitedAt && !isNaN(new Date(item.invitedAt).getTime())) || 
+                         (item.createdAt && !isNaN(new Date(item.createdAt).getTime()));
+          if (!isValid) {
+            console.log("[Header] Filtering out invitation with invalid date:", item.id, { invitedAt: item.invitedAt, createdAt: item.createdAt });
+          }
+          return isValid;
+        } else {
+          // For notifications, check createdAt
+          const isValid = item.createdAt && !isNaN(new Date(item.createdAt).getTime());
+          if (!isValid) {
+            console.log("[Header] Filtering out notification with invalid date:", item.id, item.createdAt);
+          }
+          return isValid;
+        }
+      }).filter((item) => {
+        // Additional filter to remove items that would show "N/A" dates
+        if (item._type === "notice") {
+          return item.sentAt && !isNaN(new Date(item.sentAt).getTime());
+        } else if (item._type === "invitation") {
+          return (item.invitedAt && !isNaN(new Date(item.invitedAt).getTime())) || 
+                 (item.createdAt && !isNaN(new Date(item.createdAt).getTime()));
+        } else {
+          return item.createdAt && !isNaN(new Date(item.createdAt).getTime());
+        }
+      }).sort((a, b) => {
+        const aDate = a.sentAt || a.invitedAt || a.createdAt || new Date(0);
+        const bDate = b.sentAt || b.invitedAt || b.createdAt || new Date(0);
         return new Date(bDate).getTime() - new Date(aDate).getTime();
-      }).slice(0, 5); // For renters, show notices and invitations
+      }).slice(0, 5); // For renters, show notifications, notices and invitations
+
+  console.log("[Header] All notifications after filtering:", allNotifications.length);
+  console.log("[Header] Sample allNotifications:", allNotifications.slice(0, 2).map(n => ({
+    id: n.id,
+    type: n._type,
+    subject: n.subject,
+    sentAt: n.sentAt,
+    createdAt: n.createdAt
+  })));
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -281,7 +380,7 @@ export function Header() {
                     ))
                   ) : (
                     // Renter notifications
-                    [...notices, ...invitations].map((item) => (
+                    allNotifications.map((item) => (
                       <DropdownMenuItem
                         key={item.id}
                         onClick={() => handleNotificationClick(item)}
@@ -311,8 +410,11 @@ export function Header() {
                           <div className="flex items-center gap-2 mt-1">
                             <span className="text-xs text-muted-foreground">
                               {item._type === "notice" 
-                                ? new Date(item.sentAt).toLocaleDateString()
-                                : new Date(item.invitedAt).toLocaleDateString()
+                                ? (item.sentAt && !isNaN(new Date(item.sentAt).getTime()) ? new Date(item.sentAt).toLocaleDateString() : "N/A")
+                                : item._type === "invitation"
+                                ? (item.invitedAt && !isNaN(new Date(item.invitedAt).getTime()) ? new Date(item.invitedAt).toLocaleDateString() : 
+                                   item.createdAt && !isNaN(new Date(item.createdAt).getTime()) ? new Date(item.createdAt).toLocaleDateString() : "N/A")
+                                : (item.createdAt && !isNaN(new Date(item.createdAt).getTime()) ? new Date(item.createdAt).toLocaleDateString() : "N/A")
                               }
                             </span>
                             <Eye className="h-3 w-3 text-muted-foreground" />

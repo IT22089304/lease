@@ -101,6 +101,17 @@ export const invoiceService = {
     } as Invoice
   },
 
+  // Check if an invoice has been sent for a specific lease
+  async hasInvoiceBeenSent(renterEmail: string, propertyId: string): Promise<boolean> {
+    const q = query(
+      collection(db, "invoices"),
+      where("renterEmail", "==", renterEmail),
+      where("propertyId", "==", propertyId)
+    )
+    const querySnapshot = await getDocs(q)
+    return !querySnapshot.empty
+  },
+
   // Update invoice status
   async updateInvoiceStatus(invoiceId: string, status: Invoice["status"]): Promise<void> {
     const docRef = doc(db, "invoices", invoiceId)
@@ -144,38 +155,143 @@ export const invoiceService = {
     const { paymentService } = await import("./payment-service")
     const { securityDepositService } = await import("./security-deposit-service")
 
-    // Create security deposit record if applicable
+    // Check for existing payments to avoid duplicates
+    const existingPayments = await paymentService.getLeasePayments(invoice.propertyId)
+    const existingDeposits = await securityDepositService.getDepositsByLease(invoice.propertyId)
+    
+    // Get current month and year for comparison
+    const currentDate = new Date()
+    const currentMonth = currentDate.getMonth()
+    const currentYear = currentDate.getFullYear()
+
+    // Create security deposit record if applicable and not already paid
     if (invoice.securityDeposit > 0) {
-      await securityDepositService.createDeposit({
-        leaseId: invoice.propertyId,
-        renterId: invoice.renterId,
-        landlordId: invoice.landlordId,
-        amount: invoice.securityDeposit,
-        paidDate: new Date(),
-        paymentMethod: "Stripe Card",
-        transactionId: transactionId,
-        invoiceId: invoice.id, // Link to invoice
-      })
+      const depositAlreadyPaid = existingDeposits.some(deposit => 
+        deposit.amount >= invoice.securityDeposit && 
+        deposit.paidDate && 
+        new Date(deposit.paidDate).getMonth() === currentMonth &&
+        new Date(deposit.paidDate).getFullYear() === currentYear
+      )
+      
+      if (!depositAlreadyPaid) {
+        await securityDepositService.createDeposit({
+          leaseId: invoice.propertyId,
+          renterId: invoice.renterId,
+          landlordId: invoice.landlordId,
+          amount: invoice.securityDeposit,
+          paidDate: new Date(),
+          paymentMethod: "Stripe Card",
+          transactionId: transactionId,
+          invoiceId: invoice.id, // Link to invoice
+        })
+        
+        // Send notification for security deposit
+        try {
+          const { notificationService } = await import("./notification-service")
+          const { propertyService } = await import("./property-service")
+          
+          const property = await propertyService.getProperty(invoice.propertyId)
+          const propertyName = property?.title || property?.address?.street || `Property ${invoice.propertyId.slice(-6)}`
+          
+          await notificationService.notifyPaymentReceived(
+            invoice.landlordId,
+            invoice.propertyId,
+            invoice.renterId,
+            invoice.securityDeposit,
+            propertyName,
+            "Security Deposit"
+          )
+          console.log(`Security deposit notification sent to landlord ${invoice.landlordId}`)
+        } catch (error) {
+          console.error("Error sending security deposit notification:", error)
+        }
+      }
     }
 
-    // Create monthly rent payment record
+    // Handle monthly rent payment - update existing pending payment or create new one
     if (invoice.monthlyRent > 0) {
-      await paymentService.createPayment({
-        leaseId: invoice.propertyId,
-        amount: invoice.monthlyRent,
-        dueDate: new Date(),
-        paidDate: new Date(),
-        status: "paid",
-        paymentMethod: "Stripe Card",
-        transactionId: transactionId,
-        renterId: invoice.renterId,
-        landlordId: invoice.landlordId,
-        paymentType: "monthly_rent",
-        invoiceId: invoice.id, // Link to invoice
-      })
+      // Find existing pending payment for this month
+      const existingPendingPayment = existingPayments.find(payment => 
+        payment.status === "pending" &&
+        payment.amount === invoice.monthlyRent &&
+        payment.dueDate && 
+        new Date(payment.dueDate).getMonth() === currentMonth &&
+        new Date(payment.dueDate).getFullYear() === currentYear
+      )
+      
+      // Check if already paid
+      const rentAlreadyPaid = existingPayments.some(payment => 
+        payment.amount >= invoice.monthlyRent && 
+        payment.status === "paid" &&
+        payment.dueDate && 
+        new Date(payment.dueDate).getMonth() === currentMonth &&
+        new Date(payment.dueDate).getFullYear() === currentYear
+      )
+      
+      if (rentAlreadyPaid) {
+        console.log("Rent already paid for this month")
+        return
+      }
+      
+      if (existingPendingPayment) {
+        // Update the existing pending payment to paid
+        console.log(`Updating existing pending payment ${existingPendingPayment.id} to paid`)
+        await paymentService.updatePayment(existingPendingPayment.id, {
+          status: "paid",
+          paidDate: new Date(),
+          paymentMethod: "Stripe Card",
+          transactionId: transactionId,
+          invoiceId: invoice.id, // Link to invoice
+        })
+      } else {
+        // Create new payment record if no existing pending payment found
+        console.log("Creating new payment record for rent")
+        await paymentService.createPayment({
+          leaseId: invoice.propertyId,
+          amount: invoice.monthlyRent,
+          dueDate: new Date(),
+          paidDate: new Date(),
+          status: "paid",
+          paymentMethod: "Stripe Card",
+          transactionId: transactionId,
+          renterId: invoice.renterId,
+          landlordId: invoice.landlordId,
+          paymentType: "monthly_rent",
+          invoiceId: invoice.id, // Link to invoice
+        })
+      }
+      
+      // Send notification to landlord about payment received
+      try {
+        const { notificationService } = await import("./notification-service")
+        const { propertyService } = await import("./property-service")
+        
+        // Get property details for the notification
+        const property = await propertyService.getProperty(invoice.propertyId)
+        const propertyName = property?.title || property?.address?.street || `Property ${invoice.propertyId.slice(-6)}`
+        
+        // Get current month name
+        const currentDate = new Date()
+        const monthName = currentDate.toLocaleString('default', { month: 'long' })
+        const year = currentDate.getFullYear()
+        const monthYear = `${monthName} ${year}`
+        
+        await notificationService.notifyPaymentReceived(
+          invoice.landlordId,
+          invoice.propertyId,
+          invoice.renterId,
+          invoice.monthlyRent,
+          propertyName,
+          monthYear
+        )
+        console.log(`Payment notification sent to landlord ${invoice.landlordId}`)
+      } catch (error) {
+        console.error("Error sending payment notification:", error)
+        // Don't fail the payment if notification fails
+      }
     }
 
-    // Create application fee payment record
+    // Create application fee payment record (usually one-time, so no duplicate check needed)
     if (invoice.applicationFee > 0) {
       await paymentService.createPayment({
         leaseId: invoice.propertyId,
@@ -190,9 +306,30 @@ export const invoiceService = {
         paymentType: "application_fee",
         invoiceId: invoice.id, // Link to invoice
       })
+      
+      // Send notification for application fee
+      try {
+        const { notificationService } = await import("./notification-service")
+        const { propertyService } = await import("./property-service")
+        
+        const property = await propertyService.getProperty(invoice.propertyId)
+        const propertyName = property?.title || property?.address?.street || `Property ${invoice.propertyId.slice(-6)}`
+        
+        await notificationService.notifyPaymentReceived(
+          invoice.landlordId,
+          invoice.propertyId,
+          invoice.renterId,
+          invoice.applicationFee,
+          propertyName,
+          "Application Fee"
+        )
+        console.log(`Application fee notification sent to landlord ${invoice.landlordId}`)
+      } catch (error) {
+        console.error("Error sending application fee notification:", error)
+      }
     }
 
-    // Create pet fee payment record
+    // Create pet fee payment record (usually one-time, so no duplicate check needed)
     if (invoice.petFee > 0) {
       await paymentService.createPayment({
         leaseId: invoice.propertyId,
@@ -207,6 +344,27 @@ export const invoiceService = {
         paymentType: "pet_fee",
         invoiceId: invoice.id, // Link to invoice
       })
+      
+      // Send notification for pet fee
+      try {
+        const { notificationService } = await import("./notification-service")
+        const { propertyService } = await import("./property-service")
+        
+        const property = await propertyService.getProperty(invoice.propertyId)
+        const propertyName = property?.title || property?.address?.street || `Property ${invoice.propertyId.slice(-6)}`
+        
+        await notificationService.notifyPaymentReceived(
+          invoice.landlordId,
+          invoice.propertyId,
+          invoice.renterId,
+          invoice.petFee,
+          propertyName,
+          "Pet Fee"
+        )
+        console.log(`Pet fee notification sent to landlord ${invoice.landlordId}`)
+      } catch (error) {
+        console.error("Error sending pet fee notification:", error)
+      }
     }
   },
 
@@ -219,24 +377,41 @@ export const invoiceService = {
   ): Promise<void> {
     const { paymentService } = await import("./payment-service")
     
+    // Check for existing payments to avoid duplicates
+    const existingPayments = await paymentService.getLeasePayments(leaseId)
+    
     const schedule = []
     let currentDate = new Date(startDate)
     
     while (currentDate <= endDate) {
-      schedule.push({
-        leaseId,
-        amount: monthlyRent,
-        dueDate: new Date(currentDate),
-        status: "pending" as const,
-        paymentType: "monthly_rent" as const,
-        createdAt: new Date(),
+      // Check if a payment already exists for this month
+      const currentMonth = currentDate.getMonth()
+      const currentYear = currentDate.getFullYear()
+      
+      const paymentExists = existingPayments.some(payment => {
+        const paymentDate = payment.dueDate ? new Date(payment.dueDate) : new Date(0)
+        return paymentDate.getMonth() === currentMonth && 
+               paymentDate.getFullYear() === currentYear &&
+               payment.amount === monthlyRent
       })
+      
+      // Only add to schedule if payment doesn't already exist
+      if (!paymentExists) {
+        schedule.push({
+          leaseId,
+          amount: monthlyRent,
+          dueDate: new Date(currentDate),
+          status: "pending" as const,
+          paymentType: "monthly_rent" as const,
+          createdAt: new Date(),
+        })
+      }
       
       // Move to next month
       currentDate.setMonth(currentDate.getMonth() + 1)
     }
 
-    // Create all payment records
+    // Create payment records only for months that don't already have payments
     for (const payment of schedule) {
       await paymentService.createPayment(payment)
     }

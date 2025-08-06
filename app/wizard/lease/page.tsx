@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { leaseService } from "@/lib/services/lease-service"
 import { propertyService } from "@/lib/services/property-service"
 import { noticeService } from "@/lib/services/notice-service"
+import { applicationService } from "@/lib/services/application-service"
 import { PDFTemplateSelector } from "@/components/lease/pdf-template-selector"
 import { TemplateMeta } from "@/lib/services/template-service"
 import { toast } from "sonner"
@@ -20,16 +21,27 @@ export default function LeaseWizardPage() {
   const [loading, setLoading] = useState(true)
   const [selectedTemplate, setSelectedTemplate] = useState<TemplateMeta | null>(null)
   const [receiverEmail, setReceiverEmail] = useState("")
+  const [approvedApplications, setApprovedApplications] = useState<any[]>([])
 
   useEffect(() => {
-    async function fetchProperty() {
+    async function fetchData() {
       if (!propertyId) return
       setLoading(true)
-      const prop = await propertyService.getProperty(propertyId)
-      setProperty(prop)
-      setLoading(false)
+      try {
+        const prop = await propertyService.getProperty(propertyId)
+        setProperty(prop)
+        
+        // Fetch approved applications for this property
+        const applications = await applicationService.getApprovedApplicationsByProperty(propertyId)
+        setApprovedApplications(applications)
+      } catch (error) {
+        console.error("Error fetching data:", error)
+        toast.error("Failed to load property data")
+      } finally {
+        setLoading(false)
+      }
     }
-    fetchProperty()
+    fetchData()
   }, [propertyId])
 
   const handleTemplateSelect = (template: TemplateMeta | null) => {
@@ -127,6 +139,7 @@ export default function LeaseWizardPage() {
             landlordId={property?.landlordId}
             receiverEmail={receiverEmail}
             onReceiverEmailChange={setReceiverEmail}
+            approvedApplications={approvedApplications}
           />
           
           <div className="flex justify-center">

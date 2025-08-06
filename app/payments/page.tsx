@@ -259,8 +259,45 @@ export default function PaymentsPage() {
       let allInvoices: any[] = [];
       
       for (const lease of leases) {
+        // Clean up duplicate payments for this lease
+        console.log(`Cleaning up duplicates for lease: ${lease.id}`);
+        await paymentService.removeDuplicatePayments(lease.id);
         const payments = await paymentService.getLeasePayments(lease.id);
-        allPayments = allPayments.concat(payments);
+        console.log(`Found ${payments.length} payments after cleanup`);
+        
+        // Additional manual cleanup for payments with same date and amount
+        const paymentsByDate = new Map();
+        const uniquePayments = [];
+        
+        for (const payment of payments) {
+          const paymentDate = payment.dueDate ? new Date(payment.dueDate) : new Date(0);
+          const key = `${paymentDate.getMonth()}-${paymentDate.getFullYear()}-${payment.amount}`;
+          
+          if (!paymentsByDate.has(key)) {
+            paymentsByDate.set(key, []);
+          }
+          paymentsByDate.get(key).push(payment);
+        }
+        
+        // Keep only one payment per date-amount combination
+        for (const [key, paymentGroup] of paymentsByDate) {
+          if (paymentGroup.length > 1) {
+            console.log(`Found ${paymentGroup.length} duplicate payments for key: ${key}`);
+            // Keep the paid one if any, otherwise keep the first
+            const paidPayment = paymentGroup.find((p: any) => p.status === "paid");
+            if (paidPayment) {
+              uniquePayments.push(paidPayment);
+              console.log(`Keeping paid payment for ${key}`);
+            } else {
+              uniquePayments.push(paymentGroup[0]);
+              console.log(`Keeping first payment for ${key}`);
+            }
+          } else {
+            uniquePayments.push(paymentGroup[0]);
+          }
+        }
+        
+        allPayments = allPayments.concat(uniquePayments);
         const deposits = await securityDepositService.getDepositsByLease(lease.id);
         allDeposits = allDeposits.concat(deposits);
       }
@@ -279,7 +316,7 @@ export default function PaymentsPage() {
         }
       }
       
-      allPayments.sort((a, b) => (b.dueDate?.getTime?.() || 0) - (a.dueDate?.getTime?.() || 0));
+      allPayments.sort((a, b) => (a.dueDate?.getTime?.() || 0) - (b.dueDate?.getTime?.() || 0));
       setPayments(allPayments);
       setSecurityDeposits(allDeposits);
       // Pick the most recent/active lease
@@ -302,6 +339,11 @@ export default function PaymentsPage() {
   }, [user?.email, invoiceId]);
 
   const handlePaymentSuccess = async (paymentData: any) => {
+    // Get current month name
+    const currentMonth = new Date().toLocaleString('default', { month: 'long' });
+    const currentYear = new Date().getFullYear();
+    const monthYear = `${currentMonth} ${currentYear}`;
+
     // Handle invoice payment
     if (selectedInvoice) {
       try {
@@ -345,7 +387,7 @@ export default function PaymentsPage() {
             const deposits = await securityDepositService.getDepositsByLease(lease.id);
             allDeposits = allDeposits.concat(deposits);
           }
-          allPayments.sort((a, b) => (b.dueDate?.getTime?.() || 0) - (a.dueDate?.getTime?.() || 0));
+          allPayments.sort((a, b) => (a.dueDate?.getTime?.() || 0) - (b.dueDate?.getTime?.() || 0));
           setPayments(allPayments);
           setSecurityDeposits(allDeposits);
           
@@ -367,6 +409,11 @@ export default function PaymentsPage() {
     // Handle regular payment (existing logic)
     const pending = payments.find(p => p.status === "pending");
     const isInitialPayment = currentLease && paymentData.amount === (currentLease.securityDeposit + currentLease.monthlyRent);
+    
+    // Import services for notifications
+    const { notificationService } = await import("@/lib/services/notification-service");
+    const { propertyService } = await import("@/lib/services/property-service");
+    
     if (isInitialPayment && currentLease) {
       // Split and record security deposit
       await securityDepositService.createDeposit({
@@ -378,6 +425,24 @@ export default function PaymentsPage() {
         paymentMethod: paymentData.method,
         transactionId: paymentData.stripeId,
       });
+      
+      // Send notification for security deposit
+      try {
+        const property = await propertyService.getProperty(currentLease.propertyId);
+        const propertyName = property?.title || property?.address?.street || `Property ${currentLease.propertyId.slice(-6)}`;
+        
+        await notificationService.notifyPaymentReceived(
+          currentLease.landlordId,
+          currentLease.propertyId,
+          currentLease.renterId,
+          currentLease.securityDeposit,
+          propertyName,
+          "Security Deposit"
+        );
+      } catch (error) {
+        console.error("Error sending security deposit notification:", error);
+      }
+      
       // Record first month rent as payment
       await paymentService.createPayment({
         leaseId: currentLease.id,
@@ -389,14 +454,50 @@ export default function PaymentsPage() {
         transactionId: paymentData.stripeId,
         renterId: currentLease.renterId,
         landlordId: currentLease.landlordId,
+        monthName: monthYear, // Add month name
       });
+      
+      // Send notification for monthly rent
+      try {
+        const property = await propertyService.getProperty(currentLease.propertyId);
+        const propertyName = property?.title || property?.address?.street || `Property ${currentLease.propertyId.slice(-6)}`;
+        
+        await notificationService.notifyPaymentReceived(
+          currentLease.landlordId,
+          currentLease.propertyId,
+          currentLease.renterId,
+          currentLease.monthlyRent,
+          propertyName,
+          monthYear
+        );
+      } catch (error) {
+        console.error("Error sending monthly rent notification:", error);
+      }
     } else if (pending) {
       await paymentService.updatePayment(pending.id, {
         status: "paid",
         paidDate: new Date(),
         paymentMethod: paymentData.method,
         transactionId: paymentData.stripeId,
+        monthName: monthYear, // Add month name
       });
+      
+      // Send notification for monthly rent payment
+      try {
+        const property = await propertyService.getProperty(currentLease?.propertyId || "");
+        const propertyName = property?.title || property?.address?.street || `Property ${currentLease?.propertyId?.slice(-6) || ""}`;
+        
+        await notificationService.notifyPaymentReceived(
+          currentLease?.landlordId || "",
+          currentLease?.propertyId || "",
+          currentLease?.renterId || "",
+          paymentData.amount,
+          propertyName,
+          monthYear
+        );
+      } catch (error) {
+        console.error("Error sending monthly rent notification:", error);
+      }
     } else if (currentLease) {
       // No pending payment, create a new one
       await paymentService.createPayment({
@@ -409,7 +510,25 @@ export default function PaymentsPage() {
         transactionId: paymentData.stripeId,
         renterId: currentLease.renterId,      // Ensure these fields are included
         landlordId: currentLease.landlordId,  // Ensure these fields are included
+        monthName: monthYear, // Add month name
       });
+      
+      // Send notification for direct payment
+      try {
+        const property = await propertyService.getProperty(currentLease.propertyId);
+        const propertyName = property?.title || property?.address?.street || `Property ${currentLease.propertyId.slice(-6)}`;
+        
+        await notificationService.notifyPaymentReceived(
+          currentLease.landlordId,
+          currentLease.propertyId,
+          currentLease.renterId,
+          paymentData.amount,
+          propertyName,
+          monthYear
+        );
+      } catch (error) {
+        console.error("Error sending direct payment notification:", error);
+      }
     }
     
     // Update renter status to "payment" for regular payments too
@@ -444,9 +563,9 @@ export default function PaymentsPage() {
         const deposits = await securityDepositService.getDepositsByLease(lease.id);
         allDeposits = allDeposits.concat(deposits);
       }
-      allPayments.sort((a, b) => (b.dueDate?.getTime?.() || 0) - (a.dueDate?.getTime?.() || 0));
-      setPayments(allPayments);
-      setSecurityDeposits(allDeposits);
+                allPayments.sort((a, b) => (a.dueDate?.getTime?.() || 0) - (b.dueDate?.getTime?.() || 0));
+          setPayments(allPayments);
+          setSecurityDeposits(allDeposits);
       
       // Refresh invoices
       const renterInvoices = await invoiceService.getRenterInvoices(user.email);
@@ -553,32 +672,21 @@ export default function PaymentsPage() {
           <span className="block sm:inline ml-2">Your payment has been processed.</span>
         </div>
       )}
-      <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-primary">Rent Payments</h1>
           <p className="text-muted-foreground">Manage your rent payments and payment history</p>
         </div>
-        <Dialog open={isPaymentDialogOpen} onOpenChange={setIsPaymentDialogOpen}>
-          <DialogTrigger asChild>
-            <Button className="flex items-center gap-2" onClick={() => {
-              // Check if there are unpaid invoices first
-              const unpaidInvoices = invoices.filter((i) => i.status === "sent");
-              if (unpaidInvoices.length > 0) {
-                handlePayInvoice(unpaidInvoices[0]);
-              } else {
-                setIsPaymentDialogOpen(true);
-              }
-            }}>
-              <CreditCard className="h-4 w-4" />
-              {invoices.filter((i) => i.status === "sent").length > 0 ? "Pay Invoice" : "Make Payment"}
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>
-                {selectedInvoice ? `Pay Invoice #${selectedInvoice.id.slice(-6)}` : "Make Rent Payment"}
-              </DialogTitle>
-            </DialogHeader>
+      </div>
+
+      {/* Payment Dialog */}
+      <Dialog open={isPaymentDialogOpen} onOpenChange={setIsPaymentDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {selectedInvoice ? `Pay Invoice #${selectedInvoice.id.slice(-6)}` : "Make Rent Payment"}
+            </DialogTitle>
+          </DialogHeader>
             <div className="space-y-4">
               <div>
                 <Label>Amount Due</Label>
@@ -641,7 +749,6 @@ export default function PaymentsPage() {
             </div>
           </DialogContent>
         </Dialog>
-      </div>
 
       {/* Payment Summary */}
       <div className="grid gap-4 md:grid-cols-2">
@@ -655,20 +762,43 @@ export default function PaymentsPage() {
           </CardContent>
         </Card>
 
-        {payments.find((p) => p.status === "pending") && (
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Next Payment Due</CardTitle>
-              <Calendar className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">${payments.find((p) => p.status === "pending")?.amount.toLocaleString()}</div>
-              <p className="text-xs text-muted-foreground">
-                Due {(() => { const dueDate = payments.find((p) => p.status === "pending")?.dueDate; return dueDate ? new Date(dueDate).toLocaleDateString() : "-"; })()}
-              </p>
-            </CardContent>
-          </Card>
-        )}
+        {(() => {
+          const pendingPayments = payments.filter((p) => p.status === "pending");
+          const now = new Date();
+          
+          // Find the earliest overdue or upcoming payment
+          const nextPayment = pendingPayments.length > 0 
+            ? pendingPayments.reduce((earliest, current) => {
+                const earliestDate = earliest.dueDate ? new Date(earliest.dueDate) : new Date(0);
+                const currentDate = current.dueDate ? new Date(current.dueDate) : new Date(0);
+                
+                // If current is overdue and earliest is not, current is more urgent
+                if (currentDate < now && earliestDate >= now) return current;
+                // If earliest is overdue and current is not, earliest is more urgent
+                if (earliestDate < now && currentDate >= now) return earliest;
+                // If both are overdue or both are upcoming, pick the earlier one
+                return currentDate < earliestDate ? current : earliest;
+              })
+            : null;
+          
+          return nextPayment ? (
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Next Payment Due</CardTitle>
+                <Calendar className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">${nextPayment.amount.toLocaleString()}</div>
+                <p className="text-xs text-muted-foreground">
+                  Due {nextPayment.dueDate ? new Date(nextPayment.dueDate as any).toLocaleDateString() : "-"}
+                  {nextPayment.dueDate && new Date(nextPayment.dueDate) < now && (
+                    <span className="text-red-600 ml-1">(Overdue)</span>
+                  )}
+                </p>
+              </CardContent>
+            </Card>
+          ) : null;
+        })()}
       </div>
 
       {/* Unpaid Invoices Section */}
@@ -805,54 +935,127 @@ export default function PaymentsPage() {
               </div>
             ))}
             
-            {/* Show regular payments */}
-            {payments.map((payment) => (
-              <div key={payment.id} className="flex items-center justify-between p-4 border rounded-lg">
-                <div className="flex items-center gap-4">
-                  <div
-                    className={`w-3 h-3 rounded-full ${
-                      payment.status === "paid"
-                        ? "bg-success"
-                        : payment.status === "overdue"
-                          ? "bg-destructive"
-                          : "bg-warning"
-                    }`}
-                  />
-                  <div>
-                    <p className="font-medium">${payment.amount.toLocaleString()}</p>
-                    <p className="text-sm text-muted-foreground">
-                      Due: {payment.dueDate ? new Date(payment.dueDate).toLocaleDateString() : "-"}
-                      {payment.paidDate && ` • Paid: ${new Date(payment.paidDate).toLocaleDateString()}`}
-                    </p>
-                    {payment.paymentMethod && (
-                      <p className="text-xs text-muted-foreground">
-                        Method: {payment.paymentMethod}
+            {/* Show regular payments - only next month and paid payments */}
+            {payments
+              .filter((payment) => {
+                // Show all paid payments
+                if (payment.status === "paid") return true;
+                
+                // For pending payments, only show the next upcoming payment
+                if (payment.status === "pending") {
+                  const now = new Date();
+                  const paymentDate = payment.dueDate ? new Date(payment.dueDate) : new Date(0);
+                  
+                  // Find the next upcoming payment
+                  const pendingPayments = payments.filter(p => p.status === "pending");
+                  const nextPayment = pendingPayments.length > 0 
+                    ? pendingPayments.reduce((earliest, current) => {
+                        const earliestDate = earliest.dueDate ? new Date(earliest.dueDate) : new Date(0);
+                        const currentDate = current.dueDate ? new Date(current.dueDate) : new Date(0);
+                        
+                        // If current is overdue and earliest is not, current is more urgent
+                        if (currentDate < now && earliestDate >= now) return current;
+                        // If earliest is overdue and current is not, earliest is more urgent
+                        if (earliestDate < now && currentDate >= now) return earliest;
+                        // If both are overdue or both are upcoming, pick the earlier one
+                        return currentDate < earliestDate ? current : earliest;
+                      })
+                    : null;
+                  
+                  // Only show this payment if it's the next payment
+                  return nextPayment && payment.id === nextPayment.id;
+                }
+                
+                return false;
+              })
+              .map((payment) => {
+                // Determine if this is the next payment to highlight
+                const now = new Date();
+                const paymentDate = payment.dueDate ? new Date(payment.dueDate) : new Date(0);
+                const isOverdue = payment.status === "pending" && paymentDate < now;
+                
+                // Find the earliest upcoming payment to highlight (only for pending payments)
+                const pendingPayments = payments.filter(p => p.status === "pending");
+                const nextPayment = pendingPayments.length > 0 
+                  ? pendingPayments.reduce((earliest, current) => {
+                      const earliestDate = earliest.dueDate ? new Date(earliest.dueDate) : new Date(0);
+                      const currentDate = current.dueDate ? new Date(current.dueDate) : new Date(0);
+                      
+                      // If current is overdue and earliest is not, current is more urgent
+                      if (currentDate < now && earliestDate >= now) return current;
+                      // If earliest is overdue and current is not, earliest is more urgent
+                      if (earliestDate < now && currentDate >= now) return earliest;
+                      // If both are overdue or both are upcoming, pick the earlier one
+                      return currentDate < earliestDate ? current : earliest;
+                    })
+                  : null;
+                
+                // Only highlight if the payment is actually pending and matches the next payment
+                const isHighlighted = nextPayment && payment.id === nextPayment.id && payment.status === "pending";
+              
+              return (
+                <div key={payment.id} className={`flex items-center justify-between p-4 border rounded-lg ${
+                  isHighlighted 
+                    ? "bg-yellow-50 border-yellow-300 shadow-md" 
+                    : isOverdue 
+                      ? "bg-red-50 border-red-200" 
+                      : ""
+                }`}>
+                                  <div className="flex items-center gap-4">
+                    <div
+                      className={`w-3 h-3 rounded-full ${
+                        payment.status === "paid"
+                          ? "bg-success"
+                          : payment.status === "overdue"
+                            ? "bg-destructive"
+                            : "bg-warning"
+                      }`}
+                    />
+                    <div>
+                      <p className="font-medium">${payment.amount.toLocaleString()}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {payment.monthName && `${payment.monthName} • `}
+                        Due: {payment.dueDate ? new Date(payment.dueDate).toLocaleDateString() : "-"}
+                        {payment.paidDate && ` • Paid: ${new Date(payment.paidDate).toLocaleDateString()}`}
                       </p>
-                    )}
+                      {payment.paymentMethod && (
+                        <p className="text-xs text-muted-foreground">
+                          Method: {payment.paymentMethod}
+                        </p>
+                      )}
+                      {isHighlighted && (
+                        <p className="text-xs text-yellow-700 font-medium mt-1">
+                          ⭐ Next Payment Due
+                        </p>
+                      )}
+                    </div>
                   </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Badge
-                    className={
-                      payment.status === "paid"
-                        ? "status-paid"
-                        : payment.status === "overdue"
-                          ? "status-overdue"
-                          : "status-badge bg-warning/10 text-warning border-warning/20"
-                    }
-                  >
-                    {payment.status === "paid" ? "Paid" : payment.status === "overdue" ? "Overdue" : "Pending"}
-                  </Badge>
-                  {payment.status === "pending" && (
-                    <Button size="sm" onClick={() => setIsPaymentDialogOpen(true)}>
-                      Pay Now
-                    </Button>
-                  )}
-                  <Button onClick={async () => await handleExportSinglePaymentPDF(payment)} size="sm" variant="outline">Export PDF</Button>
-                </div>
-              </div>
-            ))}
-          </div>
+                  <div className="flex items-center gap-2">
+                    <Badge
+                      className={
+                        payment.status === "paid"
+                          ? "status-paid"
+                          : payment.status === "overdue"
+                            ? "status-overdue"
+                            : "status-badge bg-warning/10 text-warning border-warning/20"
+                      }
+                    >
+                      {payment.status === "paid" ? "Paid" : payment.status === "overdue" ? "Overdue" : "Pending"}
+                    </Badge>
+                    {payment.status === "pending" && (
+                      <Button size="sm" onClick={() => {
+                        setNextPayment({ amount: payment.amount, label: `Monthly Rent: $${payment.amount}` });
+                        setIsPaymentDialogOpen(true);
+                      }}>
+                        Pay Now
+                      </Button>
+                    )}
+                    <Button onClick={async () => await handleExportSinglePaymentPDF(payment)} size="sm" variant="outline">Export PDF</Button>
+                  </div>
+                                 </div>
+               );
+             })}
+            </div>
         </CardContent>
       </Card>
     </div>

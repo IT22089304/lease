@@ -3,7 +3,7 @@
 import type React from "react"
 
 import { useState, useEffect } from "react"
-import { Wand2, Languages } from "lucide-react"
+import { Wand2, Languages, FileText, Mail, Send } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -275,155 +275,187 @@ export function NoticeForm({ prefilledProperty, onSend, onCancel, properties = [
   const selectedNoticeType = noticeTypes.find((t) => t.value === formData.type)
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
-      {/* Notice Types Selection */}
-      <div className="lg:col-span-3">
-        <Card>
-          <CardHeader>
-            <CardTitle>Notice Types</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-3 gap-6 pb-2">
-              {noticeTypes.slice(0, 9).map((type) => (
-                <div
-                  key={type.value}
-                  className={`min-w-[160px] p-3 rounded-lg border cursor-pointer transition-colors text-center ${
-                    formData.type === type.value ? "border-primary bg-primary/5" : "border-border hover:bg-muted/50"
-                  }`}
-                  onClick={() => handleTypeChange(type.value as Notice["type"])}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <h4 className="font-medium text-sm">{type.label}</h4>
-                    <Badge
-                      variant={
-                        type.urgency === "high" ? "destructive" : type.urgency === "medium" ? "default" : "secondary"
-                      }
-                      className="text-xs"
-                    >
-                      {type.urgency}
-                    </Badge>
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-1">{type.description}</p>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+    <div className="max-w-6xl mx-auto space-y-6">
+      {/* Header Section */}
+      <div className="text-center space-y-2">
+        <h2 className="text-2xl font-bold">Send New Notice</h2>
+        <p className="text-muted-foreground">Choose a notice type and compose your message</p>
       </div>
 
-      {/* Notice Form */}
-      <div className="lg:col-span-2">
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <Card>
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        {/* Notice Types Selection - Left Side */}
+        <div className="xl:col-span-1">
+          <Card className="h-fit">
             <CardHeader>
-              <CardTitle>{selectedNoticeType ? selectedNoticeType.label : "Notice Details"}</CardTitle>
+              <CardTitle className="flex items-center gap-2">
+                <FileText className="h-5 w-5" />
+                Notice Types
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">Select the type of notice you want to send</p>
             </CardHeader>
-            <CardContent className="space-y-2 py-2">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {!prefilledProperty && (
-                  <div>
-                    <Label htmlFor="property">Property *</Label>
-                    <Select value={formData.propertyId} onValueChange={(value) => updateField("propertyId", value)} disabled={properties.length === 1}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select property" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {properties.map((property) => (
-                          <SelectItem key={property.id} value={property.id}>
-                            {property.address.street}{property.address.unit ? `, Unit ${property.address.unit}` : ""}, {property.address.city}, {property.address.state}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-
-                <div>
-                  <Label htmlFor="renter">Tenant Email *</Label>
-                  <Input
-                    id="renter"
-                    type="email"
-                    value={formData.renterId}
-                    onChange={(e) => updateField("renterId", e.target.value)}
-                    placeholder="tenant@example.com"
-                    required
-                    readOnly={!!renterEmail}
-                  />
-                </div>
-
-                <div className="md:col-span-2">
-                  <Label htmlFor="subject">Subject *</Label>
-                  <Input
-                    id="subject"
-                    value={formData.subject}
-                    onChange={(e) => updateField("subject", e.target.value)}
-                    placeholder="Notice subject"
-                    required
-                  />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle>Message Content</CardTitle>
-                <div className="flex gap-2">
-                  {formData.originalMessage && (
-                    <Button type="button" variant="outline" size="sm" onClick={restoreOriginal}>
-                      Restore Original
-                    </Button>
-                  )}
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={paraphraseMessage}
-                    disabled={!formData.message.trim() || isParaphrasing}
+            <CardContent>
+              <div className="grid grid-cols-1 gap-3">
+                {noticeTypes.slice(0, 9).map((type) => (
+                  <div
+                    key={type.value}
+                    className={`p-4 rounded-lg border cursor-pointer transition-all duration-200 ${
+                      formData.type === type.value 
+                        ? "border-primary bg-primary/5 shadow-md" 
+                        : "border-border hover:bg-muted/50 hover:border-primary/30"
+                    }`}
+                    onClick={() => handleTypeChange(type.value as Notice["type"])}
                   >
-                    {isParaphrasing ? (
-                      <>
-                        <Wand2 className="h-4 w-4 mr-2 animate-spin" />
-                        Paraphrasing...
-                      </>
-                    ) : (
-                      <>
-                        <Languages className="h-4 w-4 mr-2" />
-                        Paraphrase
-                      </>
-                    )}
-                  </Button>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-2 py-2">
-              <div>
-                <Label htmlFor="message">Message *</Label>
-                <Textarea
-                  id="message"
-                  value={formData.message}
-                  onChange={(e) => updateField("message", e.target.value)}
-                  placeholder="Enter your notice message or write in your own language and use the paraphrase feature..."
-                  rows={4}
-                  required
-                />
-                <p className="text-xs text-muted-foreground mt-1">
-                  💡 Tip: Use the "Paraphrase" button to convert your message to professional legal language.
-                </p>
+                    <div className="flex items-start justify-between mb-2">
+                      <div className="flex-1">
+                        <h4 className="font-semibold text-sm mb-1">{type.label}</h4>
+                        <p className="text-xs text-muted-foreground">{type.description}</p>
+                      </div>
+                      <Badge
+                        variant={
+                          type.urgency === "high" ? "destructive" : type.urgency === "medium" ? "default" : "secondary"
+                        }
+                        className="text-xs ml-2"
+                      >
+                        {type.urgency}
+                      </Badge>
+                    </div>
+                  </div>
+                ))}
               </div>
             </CardContent>
           </Card>
+        </div>
 
-          <div className="flex gap-2">
-            <Button type="submit" className="flex-1">
-              Send Notice
-            </Button>
-            <Button type="button" variant="outline" onClick={onCancel} className="flex-1">
-              Cancel
-            </Button>
-          </div>
-        </form>
+        {/* Notice Form - Right Side */}
+        <div className="xl:col-span-2">
+          <form onSubmit={handleSubmit} className="space-y-6">
+            {/* Notice Details Card */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Mail className="h-5 w-5" />
+                  {selectedNoticeType ? selectedNoticeType.label : "Notice Details"}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {!prefilledProperty && (
+                    <div className="space-y-2">
+                      <Label htmlFor="property" className="text-sm font-medium">Property *</Label>
+                      <Select value={formData.propertyId} onValueChange={(value) => updateField("propertyId", value)} disabled={properties.length === 1}>
+                        <SelectTrigger className="h-10">
+                          <SelectValue placeholder="Select property" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {properties.map((property) => (
+                            <SelectItem key={property.id} value={property.id}>
+                              {property.address.street}{property.address.unit ? `, Unit ${property.address.unit}` : ""}, {property.address.city}, {property.address.state}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <Label htmlFor="renter" className="text-sm font-medium">Tenant Email *</Label>
+                    <Input
+                      id="renter"
+                      type="email"
+                      value={formData.renterId}
+                      onChange={(e) => updateField("renterId", e.target.value)}
+                      placeholder="tenant@example.com"
+                      required
+                      readOnly={!!renterEmail}
+                      className="h-10"
+                    />
+                  </div>
+
+                  <div className="md:col-span-2 space-y-2">
+                    <Label htmlFor="subject" className="text-sm font-medium">Subject *</Label>
+                    <Input
+                      id="subject"
+                      value={formData.subject}
+                      onChange={(e) => updateField("subject", e.target.value)}
+                      placeholder="Notice subject"
+                      required
+                      className="h-10"
+                    />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Message Content Card */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2">
+                    <FileText className="h-5 w-5" />
+                    Message Content
+                  </CardTitle>
+                  <div className="flex gap-2">
+                    {formData.originalMessage && (
+                      <Button type="button" variant="outline" size="sm" onClick={restoreOriginal}>
+                        Restore Original
+                      </Button>
+                    )}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={paraphraseMessage}
+                      disabled={!formData.message.trim() || isParaphrasing}
+                    >
+                      {isParaphrasing ? (
+                        <>
+                          <Wand2 className="h-4 w-4 mr-2 animate-spin" />
+                          Paraphrasing...
+                        </>
+                      ) : (
+                        <>
+                          <Languages className="h-4 w-4 mr-2" />
+                          Paraphrase
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="message" className="text-sm font-medium">Message *</Label>
+                  <Textarea
+                    id="message"
+                    value={formData.message}
+                    onChange={(e) => updateField("message", e.target.value)}
+                    placeholder="Enter your notice message or write in your own language and use the paraphrase feature..."
+                    rows={6}
+                    required
+                    className="resize-none"
+                  />
+                  <div className="flex items-start gap-2 p-3 bg-blue-50 rounded-lg">
+                    <div className="text-blue-600 mt-0.5">💡</div>
+                    <p className="text-xs text-blue-700">
+                      <strong>Tip:</strong> Use the "Paraphrase" button to convert your message to professional legal language.
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Action Buttons */}
+            <div className="flex gap-3 pt-4">
+              <Button type="submit" className="flex-1 h-11" size="lg">
+                <Send className="h-4 w-4 mr-2" />
+                Send Notice
+              </Button>
+              <Button type="button" variant="outline" onClick={onCancel} className="flex-1 h-11" size="lg">
+                Cancel
+              </Button>
+            </div>
+          </form>
+        </div>
       </div>
     </div>
   )

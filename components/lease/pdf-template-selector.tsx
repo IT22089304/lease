@@ -20,6 +20,7 @@ interface PDFTemplateSelectorProps {
   landlordId?: string
   receiverEmail?: string
   onReceiverEmailChange?: (email: string) => void
+  approvedApplications?: any[]
 }
 
 export function PDFTemplateSelector({ 
@@ -28,7 +29,8 @@ export function PDFTemplateSelector({
   propertyId,
   landlordId,
   receiverEmail = "",
-  onReceiverEmailChange
+  onReceiverEmailChange,
+  approvedApplications = []
 }: PDFTemplateSelectorProps) {
   const [templates, setTemplates] = useState<TemplateMeta[]>([])
   const [loading, setLoading] = useState(true)
@@ -512,6 +514,7 @@ export function PDFTemplateSelector({
         onComplete={handleCompleteFilledPDF}
         propertyId={propertyId}
         landlordId={landlordId}
+        approvedApplications={approvedApplications}
       />
 
       {isCompleted && (

@@ -4,10 +4,13 @@ import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Bell, FileText, DollarSign, Calendar, Eye, Check } from "lucide-react"
+import { Bell, FileText, DollarSign, Calendar, Eye, Check, AlertTriangle, Mail } from "lucide-react"
 import { useAuth } from "@/lib/auth"
 import { notificationService } from "@/lib/services/notification-service"
+import { noticeService } from "@/lib/services/notice-service"
+import { invitationService } from "@/lib/services/invitation-service"
 import type { Notification } from "@/lib/services/notification-service"
+import type { Notice } from "@/types"
 import { toast } from "sonner"
 import { useRouter } from "next/navigation"
 
@@ -15,30 +18,36 @@ export default function RenterNotificationsPage() {
   const { user } = useAuth()
   const router = useRouter()
   const [notifications, setNotifications] = useState<Notification[]>([])
+  const [notices, setNotices] = useState<Notice[]>([])
+  const [invitations, setInvitations] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [unreadCount, setUnreadCount] = useState(0)
 
   useEffect(() => {
-    async function fetchNotifications() {
+    async function fetchAllData() {
       if (!user?.email) return
       
       try {
         setLoading(true)
-        const [notificationsData, unreadCountData] = await Promise.all([
+        const [notificationsData, noticesData, invitationsData, unreadCountData] = await Promise.all([
           notificationService.getRenterNotifications(user.email),
+          noticeService.getRenterNotices(user.email),
+          invitationService.getInvitationsForEmail(user.email),
           notificationService.getRenterUnreadCount(user.email)
         ])
         setNotifications(notificationsData)
-        setUnreadCount(unreadCountData)
+        setNotices(noticesData)
+        setInvitations(invitationsData)
+        setUnreadCount(unreadCountData + noticesData.filter(n => !n.readAt).length + invitationsData.filter(i => i.status === 'pending').length)
       } catch (error) {
-        console.error("Error fetching notifications:", error)
-        toast.error("Failed to load notifications")
+        console.error("Error fetching data:", error)
+        toast.error("Failed to load notifications and notices")
       } finally {
         setLoading(false)
       }
     }
 
-    fetchNotifications()
+    fetchAllData()
   }, [user?.email])
 
   const handleMarkAsRead = async (notificationId: string) => {
@@ -58,17 +67,43 @@ export default function RenterNotificationsPage() {
     }
   }
 
+  const handleMarkNoticeAsRead = async (noticeId: string) => {
+    try {
+      await noticeService.markAsRead(noticeId)
+      setNotices(prev => 
+        prev.map(notice => 
+          notice.id === noticeId 
+            ? { ...notice, readAt: new Date() }
+            : notice
+        )
+      )
+      setUnreadCount(prev => Math.max(0, prev - 1))
+    } catch (error) {
+      console.error("Error marking notice as read:", error)
+      toast.error("Failed to mark notice as read")
+    }
+  }
+
   const handleMarkAllAsRead = async () => {
     try {
+      // Mark all notifications as read
       await notificationService.markAllRenterNotificationsAsRead(user?.email || "")
       setNotifications(prev => 
         prev.map(notif => ({ ...notif, readAt: new Date() }))
       )
+      
+      // Mark all notices as read
+      const unreadNotices = notices.filter(n => !n.readAt)
+      await Promise.all(unreadNotices.map(notice => noticeService.markAsRead(notice.id)))
+      setNotices(prev => 
+        prev.map(notice => ({ ...notice, readAt: new Date() }))
+      )
+      
       setUnreadCount(0)
-      toast.success("All notifications marked as read")
+      toast.success("All notifications and notices marked as read")
     } catch (error) {
-      console.error("Error marking all notifications as read:", error)
-      toast.error("Failed to mark all notifications as read")
+      console.error("Error marking all as read:", error)
+      toast.error("Failed to mark all as read")
     }
   }
 
@@ -91,6 +126,26 @@ export default function RenterNotificationsPage() {
     }
   }
 
+  const handleNoticeClick = (notice: Notice) => {
+    // Mark as read first
+    if (!notice.readAt) {
+      handleMarkNoticeAsRead(notice.id)
+    }
+
+    // Navigate to notices page or handle specific notice types
+    if (notice.type === "lease_received" && notice.leaseAgreementId) {
+      // Handle lease notices specially
+      router.push("/renter/notices")
+    } else {
+      router.push("/renter/notices")
+    }
+  }
+
+  const handleInvitationClick = (invitation: any) => {
+    // Navigate to applications page
+    router.push(`/renter/applications/new?invitationId=${invitation.id}`)
+  }
+
   const getNotificationIcon = (type: Notification["type"]) => {
     switch (type) {
       case "invoice_sent":
@@ -105,6 +160,21 @@ export default function RenterNotificationsPage() {
     }
   }
 
+  const getNoticeIcon = (type: Notice["type"]) => {
+    switch (type) {
+      case "lease_received":
+      case "lease_completed":
+        return <FileText className="h-5 w-5 text-green-600" />
+      case "late_rent":
+      case "eviction":
+        return <AlertTriangle className="h-5 w-5 text-red-600" />
+      case "maintenance":
+        return <Calendar className="h-5 w-5 text-orange-600" />
+      default:
+        return <Bell className="h-5 w-5 text-blue-600" />
+    }
+  }
+
   const getNotificationBadge = (type: Notification["type"]) => {
     const variants = {
       invoice_sent: "default",
@@ -115,6 +185,29 @@ export default function RenterNotificationsPage() {
     return variants[type] || "outline"
   }
 
+  const getNoticeBadge = (type: Notice["type"]) => {
+    const variants = {
+      lease_received: "default",
+      lease_completed: "default",
+      late_rent: "destructive",
+      eviction: "destructive",
+      maintenance: "secondary",
+      custom: "outline",
+    }
+    return variants[type] || "outline"
+  }
+
+  // Combine all items for display
+  const allItems = [
+    ...notifications.map(n => ({ ...n, _type: "notification" })),
+    ...notices.map(n => ({ ...n, _type: "notice" })),
+    ...invitations.map(i => ({ ...i, _type: "invitation" }))
+  ].sort((a, b) => {
+    const aDate = a.createdAt || a.sentAt || a.invitedAt || new Date(0)
+    const bDate = b.createdAt || b.sentAt || b.invitedAt || new Date(0)
+    return new Date(bDate).getTime() - new Date(aDate).getTime()
+  })
+
   if (!user || user.role !== "renter") {
     return <div>Access denied. Renter access required.</div>
   }
@@ -124,7 +217,7 @@ export default function RenterNotificationsPage() {
       <div className="container mx-auto p-6">
         <div className="flex items-center justify-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-          <span className="ml-2">Loading notifications...</span>
+          <span className="ml-2">Loading notifications and notices...</span>
         </div>
       </div>
     )
@@ -134,7 +227,7 @@ export default function RenterNotificationsPage() {
     <div className="container mx-auto p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-primary">Notifications</h1>
+          <h1 className="text-3xl font-bold text-primary">Notifications & Notices</h1>
           <p className="text-muted-foreground">Stay updated with your rental activities</p>
         </div>
         {unreadCount > 0 && (
@@ -150,120 +243,177 @@ export default function RenterNotificationsPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Bell className="h-5 w-5" />
-            Notification Summary
+            Summary
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             <div className="text-center">
-              <div className="text-2xl font-bold text-primary">{notifications.length}</div>
+              <div className="text-2xl font-bold text-primary">{allItems.length}</div>
               <div className="text-sm text-muted-foreground">Total</div>
             </div>
             <div className="text-center">
               <div className="text-2xl font-bold text-blue-600">{unreadCount}</div>
               <div className="text-sm text-muted-foreground">Unread</div>
             </div>
-                         <div className="text-center">
-               <div className="text-2xl font-bold text-green-600">
-                 {notifications.filter(n => n.type === "invoice_sent" || n.type === "payment_received").length}
-               </div>
-               <div className="text-sm text-muted-foreground">Payments</div>
-             </div>
-             <div className="text-center">
-               <div className="text-2xl font-bold text-orange-600">
-                 {notifications.filter(n => n.type === "lease_completed" || n.type === "lease_received").length}
-               </div>
-               <div className="text-sm text-muted-foreground">Leases</div>
-             </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-green-600">
+                {notifications.filter(n => n.type === "invoice_sent" || n.type === "payment_received").length}
+              </div>
+              <div className="text-sm text-muted-foreground">Payments</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-orange-600">
+                {notices.filter(n => n.type === "lease_completed" || n.type === "lease_received").length}
+              </div>
+              <div className="text-sm text-muted-foreground">Leases</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-purple-600">
+                {invitations.filter(i => i.status === "pending").length}
+              </div>
+              <div className="text-sm text-muted-foreground">Invitations</div>
+            </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Notifications List */}
+      {/* Items List */}
       <div className="space-y-4">
-        {notifications.length === 0 ? (
+        {allItems.length === 0 ? (
           <Card>
             <CardContent className="text-center py-12">
               <Bell className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-              <h3 className="text-lg font-semibold mb-2">No notifications yet</h3>
+              <h3 className="text-lg font-semibold mb-2">No notifications or notices yet</h3>
               <p className="text-muted-foreground">
-                You'll see notifications here when you receive invoices, lease updates, and other important messages.
+                You'll see notifications and notices here when you receive invoices, lease updates, and other important messages.
               </p>
             </CardContent>
           </Card>
         ) : (
-          notifications.map((notification) => (
-            <Card 
-              key={notification.id} 
-              className={`cursor-pointer transition-all hover:shadow-md ${
-                !notification.readAt ? 'border-blue-200 bg-blue-50' : ''
-              }`}
-              onClick={() => handleNotificationClick(notification)}
-            >
-              <CardContent className="p-4">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-start gap-4 flex-1">
-                    <div className="mt-1">
-                      {getNotificationIcon(notification.type)}
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-2">
-                        <h4 className="font-semibold">{notification.title}</h4>
-                        {!notification.readAt && (
-                          <div className="w-2 h-2 bg-blue-600 rounded-full"></div>
-                        )}
-                        <Badge variant={getNotificationBadge(notification.type) as any}>
-                          {notification.type.replace('_', ' ')}
-                        </Badge>
+          allItems.map((item) => {
+            const isNotification = item._type === "notification"
+            const isNotice = item._type === "notice"
+            const isInvitation = item._type === "invitation"
+            const isUnread = isNotification ? !item.readAt : isNotice ? !item.readAt : isInvitation ? item.status === "pending" : false
+
+            return (
+              <Card 
+                key={item.id} 
+                className={`cursor-pointer transition-all hover:shadow-md ${
+                  isUnread ? 'border-blue-200 bg-blue-50' : ''
+                }`}
+                onClick={() => {
+                  if (isNotification) handleNotificationClick(item as Notification)
+                  else if (isNotice) handleNoticeClick(item as Notice)
+                  else if (isInvitation) handleInvitationClick(item)
+                }}
+              >
+                <CardContent className="p-4">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-start gap-4 flex-1">
+                      <div className="mt-1">
+                        {isNotification && getNotificationIcon((item as Notification).type)}
+                        {isNotice && getNoticeIcon((item as Notice).type)}
+                        {isInvitation && <Mail className="h-5 w-5 text-purple-600" />}
                       </div>
-                      <p className="text-sm text-muted-foreground mb-2">
-                        {notification.message}
-                      </p>
-                      <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                        <span>
-                          {notification.createdAt ? new Date(notification.createdAt).toLocaleDateString() : 'N/A'}
-                        </span>
-                        {notification.data?.amount && (
-                          <span className="font-medium text-green-600">
-                            ${notification.data.amount.toLocaleString()}
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <h4 className="font-semibold">
+                            {isNotification && (item as Notification).title}
+                            {isNotice && ((item as Notice).subject || getNoticeTypeLabel((item as Notice).type))}
+                            {isInvitation && "Property Invitation"}
+                          </h4>
+                          {isUnread && (
+                            <div className="w-2 h-2 bg-blue-600 rounded-full"></div>
+                          )}
+                          <Badge variant={
+                            isNotification ? getNotificationBadge((item as Notification).type) as any :
+                            isNotice ? getNoticeBadge((item as Notice).type) as any :
+                            "secondary"
+                          }>
+                            {isNotification && (item as Notification).type.replace('_', ' ')}
+                            {isNotice && getNoticeTypeLabel((item as Notice).type)}
+                            {isInvitation && "Invitation"}
+                          </Badge>
+                        </div>
+                        <p className="text-sm text-muted-foreground mb-2">
+                          {isNotification && (item as Notification).message}
+                          {isNotice && (item as Notice).message}
+                          {isInvitation && "You are invited to view a property."}
+                        </p>
+                        <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                          <span>
+                            {isNotification && (item as Notification).createdAt && new Date((item as Notification).createdAt).toLocaleDateString()}
+                            {isNotice && (item as Notice).sentAt && new Date((item as Notice).sentAt).toLocaleDateString()}
+                            {isInvitation && (item as any).invitedAt && new Date((item as any).invitedAt).toLocaleDateString()}
                           </span>
-                        )}
-                        {notification.data?.propertyAddress && (
-                          <span>{notification.data.propertyAddress}</span>
-                        )}
+                          {isNotification && (item as Notification).data?.amount && (
+                            <span className="font-medium text-green-600">
+                              ${(item as Notification).data.amount.toLocaleString()}
+                            </span>
+                          )}
+                          {isNotice && (item as Notice).propertyAddress && (
+                            <span>{(item as Notice).propertyAddress}</span>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {!notification.readAt && (
+                    <div className="flex items-center gap-2">
+                      {isUnread && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            if (isNotification) handleMarkAsRead(item.id)
+                            else if (isNotice) handleMarkNoticeAsRead(item.id)
+                          }}
+                        >
+                          <Check className="h-3 w-3" />
+                        </Button>
+                      )}
                       <Button
                         size="sm"
                         variant="outline"
                         onClick={(e) => {
                           e.stopPropagation()
-                          handleMarkAsRead(notification.id)
+                          if (isNotification) handleNotificationClick(item as Notification)
+                          else if (isNotice) handleNoticeClick(item as Notice)
+                          else if (isInvitation) handleInvitationClick(item)
                         }}
                       >
-                        <Check className="h-3 w-3" />
+                        <Eye className="h-3 w-3" />
                       </Button>
-                    )}
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleNotificationClick(notification)
-                      }}
-                    >
-                      <Eye className="h-3 w-3" />
-                    </Button>
+                    </div>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))
+                </CardContent>
+              </Card>
+            )
+          })
         )}
       </div>
     </div>
   )
+}
+
+// Helper function to get notice type label
+function getNoticeTypeLabel(type: string) {
+  const labels = {
+    eviction: "Eviction",
+    late_rent: "Late Rent",
+    rent_increase: "Rent Increase",
+    noise_complaint: "Noise Complaint",
+    cleanliness: "Cleanliness",
+    lease_violation: "Lease Violation",
+    inspection: "Inspection",
+    maintenance: "Maintenance",
+    parking_violation: "Parking Violation",
+    pet_violation: "Pet Violation",
+    utility_shutdown: "Utility Shutdown",
+    custom: "Custom",
+    lease_received: "Lease Agreement",
+    lease_completed: "Lease Completed",
+  };
+  return labels[type as keyof typeof labels] || "Notice";
 } 

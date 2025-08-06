@@ -6,22 +6,22 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { 
   ArrowLeft, 
-  Plus, 
-  Mail, 
+  User, 
   FileText, 
-  CheckCircle, 
-  DollarSign, 
+  Download, 
+  Eye, 
+  Calendar, 
   Home,
-  User,
-  Calendar,
+  Mail,
   Phone,
   MapPin,
-  GripVertical
+  GripVertical,
+  CheckCircle,
+  AlertCircle
 } from "lucide-react"
 import { useAuth } from "@/lib/auth"
 import { propertyService } from "@/lib/services/property-service"
@@ -29,6 +29,9 @@ import { invitationService } from "@/lib/services/invitation-service"
 import { applicationService } from "@/lib/services/application-service"
 import { leaseService } from "@/lib/services/lease-service"
 import { renterStatusService, type RenterStatus } from "@/lib/services/renter-status-service"
+import { documentService, type DocumentData } from "@/lib/services/document-service"
+import { doc, getDoc, collection, query, where, getDocs } from "firebase/firestore"
+import { db } from "@/lib/firebase"
 import { toast } from "sonner"
 
 const stages = [
@@ -40,6 +43,50 @@ const stages = [
   { id: "leased", title: "Leased", color: "bg-emerald-100 text-emerald-700" }
 ]
 
+interface TenantData {
+  id: string
+  name: string
+  email: string
+  phone?: string
+  profile?: {
+    fullName?: string
+    phone?: string
+    dateOfBirth?: string
+    emergencyContact?: {
+      name?: string
+      phone?: string
+      relationship?: string
+    }
+    employment?: {
+      employer?: string
+      position?: string
+      income?: number
+    }
+    references?: Array<{
+      name?: string
+      phone?: string
+      relationship?: string
+    }>
+  }
+}
+
+interface LeaseData {
+  id: string
+  propertyId: string
+  renterId: string
+  landlordId: string
+  status: string
+  startDate: Date
+  endDate: Date
+  monthlyRent: number
+  securityDeposit: number
+  renterEmail: string
+  createdAt: Date
+  applicationId?: string
+  leaseTerms?: any
+  signatureStatus?: any
+}
+
 export default function FindTenantsPage() {
   const params = useParams()
   const router = useRouter()
@@ -47,10 +94,15 @@ export default function FindTenantsPage() {
   const [property, setProperty] = useState<any>(null)
   const [renterStatuses, setRenterStatuses] = useState<RenterStatus[]>([])
   const [loading, setLoading] = useState(true)
-  const [isInviteDialogOpen, setIsInviteDialogOpen] = useState(false)
-  const [inviteEmail, setInviteEmail] = useState("")
-  const [inviteMessage, setInviteMessage] = useState("")
   const [draggedItem, setDraggedItem] = useState<string | null>(null)
+  const [selectedTenant, setSelectedTenant] = useState<RenterStatus | null>(null)
+  const [isTenantModalOpen, setIsTenantModalOpen] = useState(false)
+  const [tenantData, setTenantData] = useState<TenantData | null>(null)
+  const [leaseData, setLeaseData] = useState<LeaseData | null>(null)
+  const [documents, setDocuments] = useState<DocumentData[]>([])
+  const [application, setApplication] = useState<any>(null)
+  const [tenantLoading, setTenantLoading] = useState(false)
+  const [activeTab, setActiveTab] = useState("application")
 
   useEffect(() => {
     async function fetchData() {
@@ -159,33 +211,128 @@ export default function FindTenantsPage() {
     }
   }
 
-  const handleSendInvitation = async () => {
-    if (!inviteEmail.trim()) {
-      toast.error("Please enter an email address")
-      return
-    }
+  const handleTenantClick = async (renter: RenterStatus) => {
+    setSelectedTenant(renter)
+    setIsTenantModalOpen(true)
+    setTenantLoading(true)
+    setActiveTab("application")
 
     try {
-      // Create invitation
-      await invitationService.createInvitation({
-        landlordId: user!.id,
-        propertyId: params.propertyId as string,
-        renterEmail: inviteEmail,
-        status: "pending",
-        invitedAt: new Date()
-      })
+      // Fetch tenant data
+      const isEmail = renter.renterEmail.includes('@')
+      
+      if (isEmail) {
+        // Try to get user by email from the users collection
+        const usersQuery = query(collection(db, "users"), where("email", "==", renter.renterEmail))
+        const userSnapshot = await getDocs(usersQuery)
+        
+        if (!userSnapshot.empty) {
+          const userDoc = userSnapshot.docs[0]
+          const userData = userDoc.data()
+          
+          setTenantData({
+            id: userDoc.id,
+            name: userData.name || userData.email || "Unknown",
+            email: userData.email || renter.renterEmail,
+            phone: userData.phone || "",
+            profile: userData.profile || {}
+          })
+        } else {
+          // Create tenant data from email
+          setTenantData({
+            id: renter.renterEmail,
+            name: renter.renterName || renter.renterEmail.split('@')[0] || "Unknown",
+            email: renter.renterEmail,
+            phone: "",
+            profile: {}
+          })
+        }
+      } else {
+        // If renterEmail is a user ID, fetch directly
+        const tenantDoc = await getDoc(doc(db, "users", renter.renterEmail))
+        if (tenantDoc.exists()) {
+          const tenantData = tenantDoc.data()
+          setTenantData({
+            id: tenantDoc.id,
+            name: tenantData.name || tenantData.email || "Unknown",
+            email: tenantData.email || "",
+            phone: tenantData.phone || "",
+            profile: tenantData.profile || {}
+          })
+        } else {
+          setTenantData({
+            id: renter.renterEmail,
+            name: renter.renterName || "Unknown",
+            email: renter.renterEmail,
+            phone: "",
+            profile: {}
+          })
+        }
+      }
 
-      // Don't create renter status entry for pending invitations
-      // They will only appear on the kanban board once accepted
-      // The invitation is sent but won't show up until the renter accepts it
+      // Fetch lease data if available
+      if (renter.leaseId) {
+        try {
+          const lease = await leaseService.getLease(renter.leaseId)
+          if (lease) {
+            const leaseData: LeaseData = {
+              id: lease.id,
+              propertyId: lease.propertyId,
+              renterId: lease.renterId,
+              landlordId: lease.landlordId,
+              status: lease.status,
+              startDate: lease.startDate,
+              endDate: lease.endDate,
+              monthlyRent: lease.monthlyRent,
+              securityDeposit: lease.securityDeposit,
+              renterEmail: lease.renterId,
+              createdAt: lease.createdAt,
+              applicationId: lease.applicationId,
+              leaseTerms: lease.leaseTerms,
+              signatureStatus: lease.signatureStatus
+            }
+            setLeaseData(leaseData)
+          }
+        } catch (error) {
+          console.error("Error fetching lease:", error)
+        }
+      }
 
-      toast.success("Invitation sent successfully")
-      setIsInviteDialogOpen(false)
-      setInviteEmail("")
-      setInviteMessage("")
+      // Fetch application data if available
+      if (renter.applicationId) {
+        try {
+          const applicationData = await applicationService.getApplication(renter.applicationId)
+          setApplication(applicationData)
+        } catch (error) {
+          console.error("Error fetching application:", error)
+        }
+      } else if (renter.renterEmail) {
+        // If no applicationId, try to find application by renter email
+        try {
+          const applicationsByEmail = await applicationService.getApplicationsByRenterEmail(renter.renterEmail)
+          const propertyApplication = applicationsByEmail.find((app: any) => app.propertyId === params.propertyId)
+          if (propertyApplication) {
+            setApplication(propertyApplication)
+          }
+        } catch (error) {
+          console.error("Error fetching application by email:", error)
+        }
+      }
+
+      // Fetch documents
+      try {
+        const propertyDocuments = await documentService.getPropertyDocuments(params.propertyId as string)
+        setDocuments(propertyDocuments)
+      } catch (error) {
+        console.error("Error fetching documents:", error)
+        setDocuments([])
+      }
+
     } catch (error) {
-      console.error("Error sending invitation:", error)
-      toast.error("Failed to send invitation")
+      console.error("Error fetching tenant details:", error)
+      toast.error("Failed to load tenant details")
+    } finally {
+      setTenantLoading(false)
     }
   }
 
@@ -226,6 +373,61 @@ export default function FindTenantsPage() {
     }
   }
 
+  const getPropertyAddress = (property: any) => {
+    const addr = property.address
+    return `${addr.street}${addr.unit ? `, Unit ${addr.unit}` : ""}, ${addr.city}, ${addr.state}`
+  }
+
+  const getDocumentTypeLabel = (type: string) => {
+    const labels: Record<string, string> = {
+      application: "Rental Application",
+      lease: "Lease Agreement", 
+      id: "Government ID",
+      income: "Income Verification",
+      reference: "Reference Letter",
+      background: "Background Check",
+      credit: "Credit Report"
+    }
+    return labels[type] || type
+  }
+
+  const getDocumentStatusBadge = (status: string) => {
+    switch (status) {
+      case "approved":
+      case "completed":
+      case "verified":
+        return <Badge variant="default" className="bg-green-100 text-green-700 border-green-200">Approved</Badge>
+      case "pending":
+        return <Badge variant="secondary">Pending</Badge>
+      case "rejected":
+        return <Badge variant="destructive">Rejected</Badge>
+      default:
+        return <Badge variant="outline">{status}</Badge>
+    }
+  }
+
+  const handleViewDocument = (doc: DocumentData) => {
+    if (doc.url && doc.url !== "#") {
+      window.open(doc.url, '_blank')
+    } else {
+      toast.info(`Viewing ${doc.name}`)
+    }
+  }
+
+  const handleDownloadDocument = (doc: DocumentData) => {
+    if (doc.url && doc.url !== "#") {
+      const link = document.createElement('a')
+      link.href = doc.url
+      link.download = doc.name
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      toast.success(`Downloading ${doc.name}`)
+    } else {
+      toast.error("Document not available for download")
+    }
+  }
+
   if (loading) {
     return (
       <div className="container mx-auto p-6">
@@ -258,45 +460,6 @@ export default function FindTenantsPage() {
         <div>
           <h1 className="text-2xl font-bold">Find Tenants</h1>
           <p className="text-muted-foreground">{property.title || property.address?.street}</p>
-        </div>
-        <div className="ml-auto">
-          <Dialog open={isInviteDialogOpen} onOpenChange={setIsInviteDialogOpen}>
-            <DialogTrigger asChild>
-              <Button>
-                <Plus className="h-4 w-4 mr-2" />
-                Invite Tenant
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Send Invitation</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4">
-                <div>
-                  <label className="text-sm font-medium">Email Address</label>
-                  <Input
-                    type="email"
-                    placeholder="tenant@example.com"
-                    value={inviteEmail}
-                    onChange={(e) => setInviteEmail(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label className="text-sm font-medium">Message (Optional)</label>
-                  <Textarea
-                    placeholder="Add a personal message to your invitation..."
-                    value={inviteMessage}
-                    onChange={(e) => setInviteMessage(e.target.value)}
-                    rows={3}
-                  />
-                </div>
-                <Button onClick={handleSendInvitation} className="w-full">
-                  <Mail className="h-4 w-4 mr-2" />
-                  Send Invitation
-                </Button>
-              </div>
-            </DialogContent>
-          </Dialog>
         </div>
       </div>
 
@@ -356,11 +519,12 @@ export default function FindTenantsPage() {
                 {stageRenters.map((renter) => (
                   <Card 
                     key={renter.id} 
-                    className={`p-3 cursor-move hover:shadow-md transition-shadow ${
+                    className={`p-3 cursor-pointer hover:shadow-md transition-shadow ${
                       renter.status === "lease_rejected" ? "border-red-500 bg-red-50" : ""
                     }`}
                     draggable
                     onDragStart={(e) => handleDragStart(e, renter.id!)}
+                    onClick={() => handleTenantClick(renter)}
                   >
                     <div className="flex items-start gap-2">
                       <GripVertical className="h-4 w-4 text-muted-foreground mt-0.5" />
@@ -457,6 +621,316 @@ export default function FindTenantsPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Tenant Profile Modal */}
+      <Dialog open={isTenantModalOpen} onOpenChange={setIsTenantModalOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <User className="h-5 w-5" />
+              Tenant Profile - {selectedTenant?.renterName}
+            </DialogTitle>
+          </DialogHeader>
+          
+          {tenantLoading ? (
+            <div className="flex items-center justify-center h-64">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {/* Property and Tenant Info */}
+              <div className="grid gap-6 md:grid-cols-2">
+                {/* Property Card */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Home className="h-5 w-5" />
+                      Property Information
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div>
+                      <h3 className="font-semibold text-lg">{getPropertyAddress(property)}</h3>
+                      <div className="flex items-center gap-2 mt-2">
+                        <Badge className="capitalize">{property.type}</Badge>
+                        <Badge variant="secondary">Occupied</Badge>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div>
+                        <span className="text-muted-foreground">Monthly Rent:</span>
+                        <p className="font-semibold">${property.monthlyRent?.toLocaleString()}</p>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Security Deposit:</span>
+                        <p className="font-semibold">${property.securityDeposit?.toLocaleString()}</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Tenant Card */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <User className="h-5 w-5" />
+                      Tenant Information
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div>
+                      <h3 className="font-semibold text-lg">{tenantData?.name || "Unknown Tenant"}</h3>
+                      <div className="flex items-center gap-2 mt-2">
+                        <Badge variant="default">Active Tenant</Badge>
+                        <Badge variant="outline">Lease Active</Badge>
+                      </div>
+                    </div>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex items-center gap-2">
+                        <Mail className="h-4 w-4 text-muted-foreground" />
+                        <span>{tenantData?.email || "N/A"}</span>
+                      </div>
+                      {tenantData?.phone && (
+                        <div className="flex items-center gap-2">
+                          <Phone className="h-4 w-4 text-muted-foreground" />
+                          <span>{tenantData.phone}</span>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-2">
+                        <Calendar className="h-4 w-4 text-muted-foreground" />
+                        <span>Lease: {leaseData?.startDate ? leaseData.startDate.toLocaleDateString() : "N/A"} - {leaseData?.endDate ? leaseData.endDate.toLocaleDateString() : "N/A"}</span>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Tabs */}
+              <Tabs value={activeTab} onValueChange={setActiveTab}>
+                <TabsList className="grid w-full grid-cols-3">
+                  <TabsTrigger value="application">Rental Application</TabsTrigger>
+                  <TabsTrigger value="documents">Documents</TabsTrigger>
+                  <TabsTrigger value="lease">Lease Details</TabsTrigger>
+                </TabsList>
+
+                {/* Rental Application Tab */}
+                <TabsContent value="application" className="space-y-6">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Rental Application Details</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-6">
+                      {application ? (
+                        <div className="space-y-6">
+                          {/* Personal Information */}
+                          <div className="space-y-4">
+                            <h4 className="font-semibold text-lg">Personal Information</h4>
+                            <div className="grid gap-4 md:grid-cols-2">
+                              <div>
+                                <span className="text-sm text-muted-foreground">Full Name:</span>
+                                <p className="font-medium">{application.fullName || "N/A"}</p>
+                              </div>
+                              <div>
+                                <span className="text-sm text-muted-foreground">Email:</span>
+                                <p className="font-medium">{application.renterEmail || "N/A"}</p>
+                              </div>
+                              <div>
+                                <span className="text-sm text-muted-foreground">Phone:</span>
+                                <p className="font-medium">{application.phone || "N/A"}</p>
+                              </div>
+                              <div>
+                                <span className="text-sm text-muted-foreground">Application ID:</span>
+                                <p className="font-medium">{application.id || "N/A"}</p>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Employment Information */}
+                          {application.employmentCompany && (
+                            <div className="space-y-4">
+                              <h4 className="font-semibold text-lg">Employment Information</h4>
+                              <div className="grid gap-4 md:grid-cols-2">
+                                <div>
+                                  <span className="text-sm text-muted-foreground">Company:</span>
+                                  <p className="font-medium">{application.employmentCompany}</p>
+                                </div>
+                                <div>
+                                  <span className="text-sm text-muted-foreground">Job Title:</span>
+                                  <p className="font-medium">{application.employmentJobTitle || "N/A"}</p>
+                                </div>
+                                <div>
+                                  <span className="text-sm text-muted-foreground">Monthly Income:</span>
+                                  <p className="font-medium">${application.employmentMonthlyIncome || "N/A"}</p>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Application Status */}
+                          <div className="space-y-4">
+                            <h4 className="font-semibold text-lg">Application Status</h4>
+                            <div className="flex items-center gap-2">
+                              <Badge variant={application.status === "approved" ? "default" : "secondary"}>
+                                {application.status || "Submitted"}
+                              </Badge>
+                              <span className="text-sm text-muted-foreground">
+                                Submitted on {application.submittedAt ? new Date(application.submittedAt).toLocaleDateString() : "N/A"}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-center py-8">
+                          <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                          <h3 className="text-lg font-medium mb-2">No Application Found</h3>
+                          <p className="text-muted-foreground">
+                            No rental application has been submitted for this property.
+                          </p>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+
+                {/* Documents Tab */}
+                <TabsContent value="documents" className="space-y-6">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Submitted Documents</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-4">
+                        {documents.length > 0 ? (
+                          documents.map((document) => (
+                            <div key={document.id} className="flex items-center justify-between p-4 border rounded-lg">
+                              <div className="flex items-center gap-4">
+                                <FileText className="h-5 w-5 text-muted-foreground" />
+                                <div>
+                                  <h4 className="font-medium">{document.name}</h4>
+                                  <p className="text-sm text-muted-foreground">
+                                    {getDocumentTypeLabel(document.type)} • Uploaded {document.uploadedAt.toLocaleDateString()}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                {getDocumentStatusBadge(document.status)}
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleViewDocument(document)}
+                                >
+                                  <Eye className="h-4 w-4 mr-2" />
+                                  View
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleDownloadDocument(document)}
+                                >
+                                  <Download className="h-4 w-4 mr-2" />
+                                  Download
+                                </Button>
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          <div className="text-center py-8">
+                            <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                            <h3 className="text-lg font-medium mb-2">No Documents Available</h3>
+                            <p className="text-muted-foreground">
+                              No documents have been uploaded for this property yet.
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+
+                {/* Lease Details Tab */}
+                <TabsContent value="lease" className="space-y-6">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Lease Agreement Details</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-6">
+                      <div className="grid gap-6 md:grid-cols-2">
+                        <div className="space-y-4">
+                          <h4 className="font-semibold">Lease Information</h4>
+                          <div className="space-y-3">
+                            <div>
+                              <span className="text-sm text-muted-foreground">Lease ID:</span>
+                              <p className="font-medium">{leaseData?.id || "N/A"}</p>
+                            </div>
+                            <div>
+                              <span className="text-sm text-muted-foreground">Status:</span>
+                              <div className="flex items-center gap-2 mt-1">
+                                <CheckCircle className="h-4 w-4 text-green-600" />
+                                <Badge variant="default">Active</Badge>
+                              </div>
+                            </div>
+                            <div>
+                              <span className="text-sm text-muted-foreground">Start Date:</span>
+                              <p className="font-medium">{leaseData?.startDate ? leaseData.startDate.toLocaleDateString() : "N/A"}</p>
+                            </div>
+                            <div>
+                              <span className="text-sm text-muted-foreground">End Date:</span>
+                              <p className="font-medium">{leaseData?.endDate ? leaseData.endDate.toLocaleDateString() : "N/A"}</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="space-y-4">
+                          <h4 className="font-semibold">Financial Terms</h4>
+                          <div className="space-y-3">
+                            <div>
+                              <span className="text-sm text-muted-foreground">Monthly Rent:</span>
+                              <p className="font-medium text-lg">${leaseData?.monthlyRent?.toLocaleString() || "0"}</p>
+                            </div>
+                            <div>
+                              <span className="text-sm text-muted-foreground">Security Deposit:</span>
+                              <p className="font-medium">${leaseData?.securityDeposit?.toLocaleString() || "0"}</p>
+                            </div>
+                            <div>
+                              <span className="text-sm text-muted-foreground">Total Lease Value:</span>
+                              <p className="font-medium">${((leaseData?.monthlyRent || 0) * 12).toLocaleString()}</p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {leaseData?.applicationId && (
+                        <div className="border-t pt-6">
+                          <h4 className="font-semibold mb-4">Lease Application</h4>
+                          <div className="flex items-center gap-4">
+                            <FileText className="h-8 w-8 text-muted-foreground" />
+                            <div className="flex-1">
+                              <p className="font-medium">Lease Application</p>
+                              <p className="text-sm text-muted-foreground">
+                                Application ID: {leaseData.applicationId}
+                              </p>
+                            </div>
+                            <div className="flex gap-2">
+                              <Button variant="outline" size="sm">
+                                <Eye className="h-4 w-4 mr-2" />
+                                View
+                              </Button>
+                              <Button variant="outline" size="sm">
+                                <Download className="h-4 w-4 mr-2" />
+                                Download
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+              </Tabs>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 } 

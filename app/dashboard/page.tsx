@@ -192,22 +192,16 @@ export default function DashboardPage() {
     router.push(`/dashboard/tenant/${propertyId}`)
   }
 
+  const handleViewApplications = (propertyId: string) => {
+    router.push(`/properties/${propertyId}/applications`)
+  }
+
   const handleAddProperty = () => {
     router.push("/properties/add")
   }
 
-  if (!user || user.role !== "landlord") {
-    return (
-      <div className="container mx-auto p-8">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-red-600">Access Denied</h1>
-          <p className="text-muted-foreground">You don't have permission to view this page.</p>
-        </div>
-      </div>
-    )
-  }
-
-  if (loading) {
+  // Show minimal loading state only if still loading and no data yet
+  if (loading && (!properties || properties.length === 0)) {
     return (
       <div className="container mx-auto p-8 flex items-center justify-center">
         <div className="text-center">
@@ -218,6 +212,7 @@ export default function DashboardPage() {
     )
   }
 
+  // Show error state if there's an error
   if (error) {
     return (
       <div className="container mx-auto p-8">
@@ -237,7 +232,7 @@ export default function DashboardPage() {
         <div className="space-y-2">
           <h1 className="text-4xl font-bold text-primary">Dashboard</h1>
           <p className="text-lg text-muted-foreground">
-            Welcome back, {user.name}. Here's an overview of your properties.
+            Welcome back, {user?.name || 'Landlord'}. Here's an overview of your properties.
           </p>
         </div>
 
@@ -249,10 +244,16 @@ export default function DashboardPage() {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <h2 className="text-2xl font-semibold">Your Properties</h2>
-          <Button onClick={handleAddProperty}>
-            <Plus className="h-4 w-4 mr-2" />
-            Add Property
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => router.push("/dashboard/applications")}>
+              <FileText className="h-4 w-4 mr-2" />
+              Applications
+            </Button>
+            <Button onClick={handleAddProperty}>
+              <Plus className="h-4 w-4 mr-2" />
+              Add Property
+            </Button>
+          </div>
         </div>
 
         {/* Search and Filter */}
@@ -313,6 +314,7 @@ export default function DashboardPage() {
                 onViewIncome={() => handleViewIncome(property.id)}
                 onMakeAvailable={() => handleMakeAvailable(property.id)}
                 onViewTenantDetails={() => handleViewTenantDetails(property.id)}
+                onViewApplications={() => handleViewApplications(property.id)}
               />
             ))}
         </div>

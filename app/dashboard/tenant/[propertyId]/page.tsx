@@ -198,6 +198,7 @@ export default function TenantDetailsPage() {
 
                        // Fetch rental application
             try {
+              // First try to get applications by property ID
               const applications = await applicationService.getApplicationsForLandlord(user.id)
               console.log("All applications for landlord:", applications)
               console.log("Looking for propertyId:", propertyId)
@@ -213,8 +214,20 @@ export default function TenantDetailsPage() {
                 })
               })
               
-              const propertyApplication = applications.find((app: any) => app.propertyId === propertyId)
-              console.log("Found property application:", propertyApplication)
+              let propertyApplication = applications.find((app: any) => app.propertyId === propertyId)
+              
+              // If no application found by property ID, try to find by tenant email
+              if (!propertyApplication && propertyLease.renterId) {
+                console.log("No application found by property ID, trying by tenant email:", propertyLease.renterId)
+                const applicationsByEmail = await applicationService.getApplicationsByRenterEmail(propertyLease.renterId)
+                console.log("Applications found by email:", applicationsByEmail)
+                
+                // Find the application for this property
+                propertyApplication = applicationsByEmail.find((app: any) => app.propertyId === propertyId)
+                console.log("Found application by email for this property:", propertyApplication)
+              }
+              
+              console.log("Final property application:", propertyApplication)
               if (propertyApplication) {
                 setApplication(propertyApplication)
               }
@@ -304,8 +317,20 @@ export default function TenantDetailsPage() {
                       })
                     })
                     
-                    const propertyApplication = applications.find((app: any) => app.propertyId === propertyId)
-                    console.log("Found property application (branch 4):", propertyApplication)
+                    let propertyApplication = applications.find((app: any) => app.propertyId === propertyId)
+                    
+                    // If no application found by property ID, try to find by tenant email
+                    if (!propertyApplication && tenantId) {
+                      console.log("No application found by property ID, trying by tenant email:", tenantId)
+                      const applicationsByEmail = await applicationService.getApplicationsByRenterEmail(tenantId)
+                      console.log("Applications found by email:", applicationsByEmail)
+                      
+                      // Find the application for this property
+                      propertyApplication = applicationsByEmail.find((app: any) => app.propertyId === propertyId)
+                      console.log("Found application by email for this property:", propertyApplication)
+                    }
+                    
+                    console.log("Final property application (branch 4):", propertyApplication)
                     if (propertyApplication) {
                       setApplication(propertyApplication)
                     }
@@ -351,7 +376,19 @@ export default function TenantDetailsPage() {
                   // Fetch rental application
                   try {
                     const applications = await applicationService.getApplicationsForLandlord(user.id)
-                    const propertyApplication = applications.find((app: any) => app.propertyId === propertyId)
+                    let propertyApplication = applications.find((app: any) => app.propertyId === propertyId)
+                    
+                    // If no application found by property ID, try to find by tenant email
+                    if (!propertyApplication && tenantId) {
+                      console.log("No application found by property ID, trying by tenant email:", tenantId)
+                      const applicationsByEmail = await applicationService.getApplicationsByRenterEmail(tenantId)
+                      console.log("Applications found by email:", applicationsByEmail)
+                      
+                      // Find the application for this property
+                      propertyApplication = applicationsByEmail.find((app: any) => app.propertyId === propertyId)
+                      console.log("Found application by email for this property:", propertyApplication)
+                    }
+                    
                     if (propertyApplication) {
                       setApplication(propertyApplication)
                     }
@@ -451,8 +488,20 @@ export default function TenantDetailsPage() {
                        })
                      })
                      
-                     const propertyApplication = applications.find((app: any) => app.propertyId === propertyId)
-                     console.log("Found property application (branch 2):", propertyApplication)
+                     let propertyApplication = applications.find((app: any) => app.propertyId === propertyId)
+                     
+                     // If no application found by property ID, try to find by tenant email
+                     if (!propertyApplication && tenantData.email) {
+                       console.log("No application found by property ID, trying by tenant email:", tenantData.email)
+                       const applicationsByEmail = await applicationService.getApplicationsByRenterEmail(tenantData.email)
+                       console.log("Applications found by email:", applicationsByEmail)
+                       
+                       // Find the application for this property
+                       propertyApplication = applicationsByEmail.find((app: any) => app.propertyId === propertyId)
+                       console.log("Found application by email for this property:", propertyApplication)
+                     }
+                     
+                     console.log("Final property application (branch 2):", propertyApplication)
                      if (propertyApplication) {
                        setApplication(propertyApplication)
                      }
@@ -591,37 +640,8 @@ export default function TenantDetailsPage() {
       </div>
 
       <div className="space-y-6">
-        {/* Property and Tenant Info */}
-        <div className="grid gap-6 md:grid-cols-2">
-          {/* Property Card */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Home className="h-5 w-5" />
-                Property Information
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <h3 className="font-semibold text-lg">{getPropertyAddress(property)}</h3>
-                <div className="flex items-center gap-2 mt-2">
-                  <Badge className="capitalize">{property.type}</Badge>
-                  <Badge variant="secondary">Occupied</Badge>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <span className="text-muted-foreground">Monthly Rent:</span>
-                  <p className="font-semibold">${property.monthlyRent?.toLocaleString()}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Security Deposit:</span>
-                  <p className="font-semibold">${property.securityDeposit?.toLocaleString()}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
+        {/* Tenant Info */}
+        <div className="grid gap-6 md:grid-cols-1">
           {/* Tenant Card */}
           <Card>
             <CardHeader>

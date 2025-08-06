@@ -7,6 +7,9 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
 import { useAuth } from "@/lib/auth"
 import { propertyService } from "@/lib/services/property-service"
 import { invitationService } from "@/lib/services/invitation-service"
@@ -25,6 +28,10 @@ export default function PropertyInvitationsPage() {
   const [invitations, setInvitations] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
+  const [isInviteDialogOpen, setIsInviteDialogOpen] = useState(false)
+  const [inviteEmail, setInviteEmail] = useState("")
+  const [inviteMessage, setInviteMessage] = useState("")
+  const [isCreatingInvitation, setIsCreatingInvitation] = useState(false)
 
   useEffect(() => {
     async function fetchData() {
@@ -77,7 +84,53 @@ export default function PropertyInvitationsPage() {
   }, [user?.id, propertyId, router])
 
   const handleCreateInvitation = () => {
-    router.push(`/dashboard/invite/${propertyId}`)
+    setIsInviteDialogOpen(true)
+  }
+
+  const handleSendInvitation = async () => {
+    if (!inviteEmail.trim() || !property || !user) return
+    
+    setIsCreatingInvitation(true)
+    try {
+      const invitationData = {
+        landlordId: user.id,
+        propertyId: property.id,
+        renterEmail: inviteEmail.trim(),
+        message: inviteMessage.trim() || "",
+        status: "pending" as const,
+        invitedAt: new Date(),
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days from now
+      }
+      
+      await invitationService.createInvitation(invitationData)
+      
+      toast.success("Invitation sent successfully!")
+      setIsInviteDialogOpen(false)
+      setInviteEmail("")
+      setInviteMessage("")
+      
+      // Refresh invitations list
+      const invitationsQuery = query(
+        collection(db, "invitations"),
+        where("propertyId", "==", propertyId),
+        orderBy("invitedAt", "desc")
+      )
+      const invitationsSnapshot = await getDocs(invitationsQuery)
+      const invitationsData = invitationsSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        invitedAt: doc.data().invitedAt?.toDate(),
+        respondedAt: doc.data().respondedAt?.toDate(),
+        updatedAt: doc.data().updatedAt?.toDate(),
+      }))
+      setInvitations(invitationsData)
+      
+    } catch (error) {
+      console.error("Error sending invitation:", error)
+      toast.error("Failed to send invitation")
+    } finally {
+      setIsCreatingInvitation(false)
+    }
   }
 
   const handleViewProperty = () => {
@@ -302,14 +355,6 @@ export default function PropertyInvitationsPage() {
                 </div>
                 <div className="flex items-center gap-3">
                   {getStatusBadge(invitation.status || "pending")}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleViewInvitation(invitation)}
-                  >
-                    <Eye className="h-4 w-4 mr-2" />
-                    View Details
-                  </Button>
                 </div>
               </div>
             </CardContent>
@@ -346,6 +391,70 @@ export default function PropertyInvitationsPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* Invitation Dialog */}
+      <Dialog open={isInviteDialogOpen} onOpenChange={setIsInviteDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Mail className="h-5 w-5" />
+              Send Invitation
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="email">Renter Email</Label>
+              <Input
+                id="email"
+                type="email"
+                placeholder="Enter renter's email address"
+                value={inviteEmail}
+                onChange={(e) => setInviteEmail(e.target.value)}
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label htmlFor="message">Message (Optional)</Label>
+              <Textarea
+                id="message"
+                placeholder="Add a personal message to your invitation..."
+                value={inviteMessage}
+                onChange={(e) => setInviteMessage(e.target.value)}
+                className="mt-1"
+                rows={3}
+              />
+            </div>
+            <div className="flex justify-end space-x-3 pt-4">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setIsInviteDialogOpen(false)
+                  setInviteEmail("")
+                  setInviteMessage("")
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSendInvitation}
+                disabled={isCreatingInvitation || !inviteEmail.trim()}
+              >
+                {isCreatingInvitation ? (
+                  <div className="flex items-center gap-2">
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                    Sending...
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <Mail className="h-4 w-4" />
+                    Send Invitation
+                  </div>
+                )}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 } 

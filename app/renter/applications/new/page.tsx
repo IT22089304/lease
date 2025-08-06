@@ -713,7 +713,7 @@ export default function NewApplicationPage() {
         duration: 5000,
       });
       
-      router.push("/renter/applications");
+      router.push("/renter/invitations");
     } catch (error) {
       console.error("Error submitting application:", error);
     } finally {

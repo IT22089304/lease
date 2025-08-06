@@ -6,6 +6,9 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
+import { Input } from "@/components/ui/input"
 import { leaseService } from "@/lib/services/lease-service"
 import { paymentService } from "@/lib/services/payment-service"
 import { propertyService } from "@/lib/services/property-service"
@@ -14,7 +17,7 @@ import { renterStatusService } from "@/lib/services/renter-status-service"
 import { useAuth } from "@/lib/auth"
 import { Property, Lease, RentPayment, Invoice } from "@/types"
 import { toast } from "sonner"
-import { Play, DollarSign, User, Home, ArrowLeft } from "lucide-react"
+import { Play, DollarSign, User, Home, ArrowLeft, FileText, Calendar } from "lucide-react"
 
 export default function PropertyIncomePage() {
   const searchParams = useSearchParams()
@@ -28,6 +31,13 @@ export default function PropertyIncomePage() {
   const [loading, setLoading] = useState(true)
   const [property, setProperty] = useState<Property | null>(null)
   const [renterStatuses, setRenterStatuses] = useState<any[]>([])
+  const [isLeaseDialogOpen, setIsLeaseDialogOpen] = useState(false)
+  const [selectedGroup, setSelectedGroup] = useState<any>(null)
+  const [leaseDates, setLeaseDates] = useState({
+    startDate: "",
+    endDate: ""
+  })
+  const [isProcessingLease, setIsProcessingLease] = useState(false)
 
   useEffect(() => {
     async function fetchData() {
@@ -186,7 +196,31 @@ export default function PropertyIncomePage() {
 
   // Check if lease can be started (tenant is in "payment" status)
   const canStartLease = (group: any) => {
-    return group.tenantInfo.status === "payment"
+    // Find the renter status for this tenant and property
+    const renterStatus = renterStatuses.find(rs => 
+      rs.propertyId === group.propertyInfo.propertyId && 
+      rs.renterEmail === group.tenantInfo.email
+    )
+    
+    // Show button if tenant is in "payment" status
+    return renterStatus?.status === "payment"
+  }
+
+  // Check if lease has already been started
+  const isLeaseStarted = (group: any) => {
+    // Find the renter status for this tenant and property
+    const renterStatus = renterStatuses.find(rs => 
+      rs.propertyId === group.propertyInfo.propertyId && 
+      rs.renterEmail === group.tenantInfo.email
+    )
+    
+    // Check if tenant is in "leased" status
+    return renterStatus?.status === "leased"
+  }
+
+  // Check if property is available (not occupied)
+  const isPropertyAvailable = (group: any) => {
+    return property?.status === "available" || property?.status === undefined
   }
 
   // Helper function to get payment breakdown
@@ -223,31 +257,135 @@ export default function PropertyIncomePage() {
 
   // Helper function to start lease for a group
   const handleStartLeaseForGroup = async (group: any) => {
+    setSelectedGroup(group)
+    setIsLeaseDialogOpen(true)
+    setIsProcessingLease(true)
+    
+    try {
+      // Find the lease document for this tenant
+      const { collection, query, where, getDocs } = await import("firebase/firestore")
+      const { db } = await import("@/lib/firebase")
+      
+      const filledLeasesQuery = query(
+        collection(db, "filledLeases"),
+        where("propertyId", "==", group.propertyInfo.propertyId),
+        where("receiverEmail", "==", group.tenantInfo.email)
+      )
+      const filledLeasesSnapshot = await getDocs(filledLeasesQuery)
+      
+      if (!filledLeasesSnapshot.empty) {
+        const leaseDoc = filledLeasesSnapshot.docs[0]
+        const leaseData = leaseDoc.data()
+        
+        if (leaseData.filledPdfUrl) {
+          // Here you would implement OCR to extract dates from the 2nd page
+          // For now, we'll use a placeholder implementation
+          const extractedDates = await extractLeaseDates(leaseData.filledPdfUrl)
+          setLeaseDates(extractedDates)
+        } else {
+          toast.error("No signed lease document found")
+        }
+      } else {
+        toast.error("No signed lease document found")
+      }
+    } catch (error) {
+      console.error("Error processing lease document:", error)
+      toast.error("Failed to process lease document")
+    } finally {
+      setIsProcessingLease(false)
+    }
+  }
+
+  // Function to extract lease dates using OCR (placeholder implementation)
+  const extractLeaseDates = async (pdfUrl: string): Promise<{ startDate: string, endDate: string }> => {
+    // This is a placeholder implementation
+    // In a real implementation, you would:
+    // 1. Download the PDF
+    // 2. Extract the 2nd page
+    // 3. Use OCR to extract text
+    // 4. Use AI to parse dates
+    // 5. Return the extracted dates
+    
+    // For now, return placeholder dates
+    const today = new Date()
+    const startDate = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1)
+    const endDate = new Date(today.getFullYear() + 1, today.getMonth(), today.getDate())
+    
+    return {
+      startDate: startDate.toISOString().split('T')[0],
+      endDate: endDate.toISOString().split('T')[0]
+    }
+  }
+
+  // Function to confirm and start the lease
+  const handleConfirmLease = async () => {
+    if (!selectedGroup || !leaseDates.startDate || !leaseDates.endDate) return
+    
+    setIsProcessingLease(true)
     try {
       // Find the renter status for this tenant
       const renterStatus = renterStatuses.find(rs => 
-        rs.propertyId === group.propertyInfo.propertyId && rs.renterEmail === group.tenantInfo.email
+        rs.propertyId === selectedGroup.propertyInfo.propertyId && rs.renterEmail === selectedGroup.tenantInfo.email
       )
       
       if (renterStatus && renterStatus.id) {
+        // Update renter status to "leased"
         await renterStatusService.updateRenterStatus(renterStatus.id, {
           status: "leased",
           notes: "Lease started after payment received"
         })
         
-        toast.success(`Lease started for ${group.tenantInfo.name} at ${group.propertyInfo.name}`)
+        // Update property status to "occupied"
+        await propertyService.updateProperty(selectedGroup.propertyInfo.propertyId, {
+          status: "occupied"
+        })
         
-        // Refresh renter statuses
+        // Create a lease record
+        const leaseData = {
+          propertyId: selectedGroup.propertyInfo.propertyId,
+          landlordId: user!.id,
+          renterId: selectedGroup.tenantInfo.email,
+          startDate: new Date(leaseDates.startDate),
+          endDate: new Date(leaseDates.endDate),
+          monthlyRent: selectedGroup.payments[0]?.amount || 0,
+          securityDeposit: 0, // This would be calculated from payments
+          status: "active" as const,
+          leaseTerms: {
+            petPolicy: false,
+            smokingAllowed: false,
+            utilitiesIncluded: [],
+            parkingIncluded: false,
+            customClauses: []
+          },
+          signatureStatus: {
+            renterSigned: true,
+            landlordSigned: true,
+            coSignerRequired: false,
+            completedAt: new Date()
+          }
+        }
+        
+        await leaseService.createLease(leaseData)
+        
+        toast.success(`Lease started for ${selectedGroup.tenantInfo.name} at ${selectedGroup.propertyInfo.name}`)
+        
+        // Refresh data
         if (user?.id) {
           const updatedRenterStatuses = await renterStatusService.getRenterStatusByLandlord(user.id)
           setRenterStatuses(updatedRenterStatuses)
         }
+        
+        setIsLeaseDialogOpen(false)
+        setSelectedGroup(null)
+        setLeaseDates({ startDate: "", endDate: "" })
       } else {
         toast.error("Could not find renter status to update")
       }
     } catch (error) {
       console.error("Error starting lease:", error)
       toast.error("Failed to start lease")
+    } finally {
+      setIsProcessingLease(false)
     }
   }
 
@@ -300,6 +438,7 @@ export default function PropertyIncomePage() {
                     <TableHead>Payment Breakdown</TableHead>
                     <TableHead>Total Amount</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -367,7 +506,32 @@ export default function PropertyIncomePage() {
                             Paid
                           </Badge>
                         </TableCell>
-
+                        <TableCell>
+                          {isLeaseStarted(group) ? (
+                            <Badge variant="default" className="bg-green-100 text-green-800">
+                              Started
+                            </Badge>
+                          ) : canStartLease(group) ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleStartLeaseForGroup(group)}
+                              disabled={isProcessingLease}
+                            >
+                              <Play className="h-4 w-4 mr-2" />
+                              {isProcessingLease ? "Processing..." : "Start Lease"}
+                            </Button>
+                          ) : isPropertyAvailable(group) ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => router.push(`/dashboard/invite/${group.propertyInfo.propertyId}`)}
+                            >
+                              <User className="h-4 w-4 mr-2" />
+                              Find Tenant
+                            </Button>
+                          ) : null}
+                        </TableCell>
                       </TableRow>
                     )
                   })}
@@ -389,6 +553,83 @@ export default function PropertyIncomePage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Lease Confirmation Dialog */}
+      <Dialog open={isLeaseDialogOpen} onOpenChange={setIsLeaseDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Calendar className="h-5 w-5" />
+              Confirm Lease Dates
+            </DialogTitle>
+          </DialogHeader>
+          {selectedGroup && (
+            <div className="space-y-6">
+              <div className="bg-blue-50 rounded-lg p-4">
+                <h4 className="font-semibold mb-2">Lease Information</h4>
+                <p className="text-sm text-gray-600">
+                  Tenant: {selectedGroup.tenantInfo.name}
+                </p>
+                <p className="text-sm text-gray-600">
+                  Property: {selectedGroup.propertyInfo.name}
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <Label htmlFor="startDate">Lease Start Date</Label>
+                  <Input
+                    id="startDate"
+                    type="date"
+                    value={leaseDates.startDate}
+                    onChange={(e) => setLeaseDates(prev => ({ ...prev, startDate: e.target.value }))}
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="endDate">Lease End Date</Label>
+                  <Input
+                    id="endDate"
+                    type="date"
+                    value={leaseDates.endDate}
+                    onChange={(e) => setLeaseDates(prev => ({ ...prev, endDate: e.target.value }))}
+                    className="mt-1"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end space-x-3 pt-4 border-t">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setIsLeaseDialogOpen(false)
+                    setSelectedGroup(null)
+                    setLeaseDates({ startDate: "", endDate: "" })
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleConfirmLease}
+                  disabled={isProcessingLease || !leaseDates.startDate || !leaseDates.endDate}
+                >
+                  {isProcessingLease ? (
+                    <div className="flex items-center gap-2">
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                      Processing...
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <Play className="h-4 w-4" />
+                      Start Lease
+                    </div>
+                  )}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
