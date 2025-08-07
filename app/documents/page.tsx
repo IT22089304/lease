@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { PDFFiller } from "@/components/pdf/pdf-filler"
+// import { PDFFiller } from "@/components/pdf/pdf-filler"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { FileText, Upload, Download, Save } from "lucide-react"
@@ -45,7 +45,11 @@ export default function DocumentsPage() {
         </TabsList>
 
         <TabsContent value="fill" className="space-y-6">
-          <PDFFiller onSave={handleSaveForm} />
+          <div className="text-center py-12 text-muted-foreground">
+            <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
+            <p>PDF Filler temporarily disabled for deployment</p>
+            <p className="text-sm mt-2">This feature will be available after deployment</p>
+          </div>
         </TabsContent>
 
         <TabsContent value="saved" className="space-y-6">
